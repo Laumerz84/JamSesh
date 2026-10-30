@@ -1,0 +1,29 @@
+# Build output
+/build/
+/build-*/
+/dist/
+*.obj
+*.pdb
+*.ilk
+*.exe
+
+# Private paperwork and local scratch work. docs/ holds the signed ASIO agreement: never commit it.
+/docs/
+/backup/
+/tools/agent*/
+/tools/obj/
+/tools/atoms-test/
+/tools/plugin-test/build/
+
+# Third-party parts the build doesn't use (packaging/make-dist.ps1 leaves them out of the source zip too)
+/third_party/_downloads/
+/third_party/opus/dnn/*_data.c
+/third_party/asiosdk/*
+!/third_party/asiosdk/common/
+!/third_party/asiosdk/LICENSE.txt
+!/third_party/asiosdk/README.md
+!/third_party/asiosdk/changes.txt
+/JUCE/examples/
+/JUCE/docs/
+/JUCE/extras/*
+!/JUCE/extras/Build/

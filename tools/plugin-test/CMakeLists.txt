@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.22)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+project(PluginTest VERSION 1.0.0)
+add_subdirectory(../../JUCE juce)
+juce_add_console_app(PluginTest)
+target_sources(PluginTest PRIVATE main.cpp capture.cpp)
+target_compile_definitions(PluginTest PRIVATE JUCE_PLUGINHOST_VST3=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(PluginTest PRIVATE user32 gdi32 juce::juce_audio_processors juce::juce_audio_utils)

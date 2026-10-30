@@ -1,0 +1,50 @@
+Jam Sesh and Clod Scope {VERSION} - source code
+============================================
+
+Jam Sesh (the app) and Clod Scope (the plugin) are both built from this source code.
+
+Copyright (C) 2026 Clod Codes
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License version 3 as published by the Free Software Foundation (LICENSE.txt).
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+License for more details.
+
+
+WHAT'S IN HERE
+
+Source\               the app and the plugin (C++)
+CMakeLists.txt        the build
+package.bat           builds the app and the plugin and packages them, with this source code, for
+                      sharing (packaging\make-dist.ps1 -> dist\)
+build.bat             builds and installs the plugin into FL Studio (paths at the top of the file)
+tools\                test tools: headless snapshots (snap), Jam Sesh network tests (jam-test), an audio
+                      latency probe and a test host for the plugin (plugin-test); icon\make-icon.ps1
+                      draws the app's icon (Source\Resources\JamSesh.ico)
+JUCE\                 JUCE 8.0.4 (AGPLv3: JUCE\LICENSE.md, full text in JUCE\LICENSE-AGPLv3.txt): its
+                      modules and build tools, without the examples and extras. One change, marked
+                      "Clod Scope patch" (2026-10-29), in
+                      JUCE\modules\juce_graphics\native\juce_RenderingHelpers.h: transparency layers
+                      are software images, so the window paints quickly in JUCE's software renderer
+third_party\opus      Opus 1.6.1 (BSD licence, COPYING), without its neural-network model data
+                      (dnn\*_data.c), which only DRED, OSCE and deep PLC use; they're switched off here
+third_party\asiosdk   Steinberg's ASIO SDK 2.3.4, used under its GPLv3 option (LICENSE.txt): its
+                      common folder, the interface JUCE's ASIO support builds with
+Source\Resources\Fonts   the New Rocker font (SIL Open Font License, NewRocker-OFL.txt)
+
+
+BUILDING ON WINDOWS
+
+You need Visual Studio 2022 or its Build Tools, with "Desktop development with C++" (it brings CMake
+and Ninja). Open "x64 Native Tools Command Prompt for VS 2022" in this folder and run:
+
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+    cmake --build build
+
+The app:      build\ClodScope_artefacts\Release\Standalone\Jam Sesh.exe
+The plugin:   build\ClodScope_artefacts\Release\VST3\Clod Scope.vst3
+
+package.bat and build.bat run the same steps; set VSDIR at the top of them to your Visual Studio folder
+first.
