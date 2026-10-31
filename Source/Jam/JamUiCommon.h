@@ -4,6 +4,7 @@
 #include <juce_data_structures/juce_data_structures.h>
 #include "BinaryData.h"
 #include "JamTypes.h"
+#include "JamEngine.h"
 #include "../UI/Theme.h"
 
 // Shared by the Jam Sesh view and panel (owner: jam-ui soldier): the title font, the latency and
@@ -23,13 +24,18 @@ namespace jamui
     }
 
     //==========================================================================
-    // What one set of options costs. Everything at 48 kHz (the session rate), one friend, one way.
+    // What one set of options costs: one way, your input jack to the ears of a friend with your sound card and
+    // settings, without the network itself (the model is in JamEngine.h). Everything at 48 kHz, one friend.
     struct Estimate
     {
-        float packetMs = 0.0f;      // waiting for a packet to fill
-        float codecMs = 0.0f;       // Opus look-ahead + frame (0 when uncompressed)
-        float bufferMs = 0.0f;      // the receiver's safety buffer (jitter buffer, + one packet with loss protection)
-        float cardMs = 0.0f;        // this sound card's block (passed in)
+        float packetMs = 0.0f;      // one packet's audio (auto: your block, 64..128 samples)
+        float codecMs = 0.0f;       // Opus look-ahead (0 when uncompressed)
+        float bufferMs = 0.0f;      // packets + the friend's safety buffer: send hold, one block of theirs, the
+                                    // jitter safety (+ one packet and 1 ms with loss protection)
+        float chainMs = 0.0f;       // the sound chain (amp oversampling, limiter look-ahead)
+        float cardInMs = 0.0f, cardOutMs = 0.0f;   // the sound card as its driver reports it (cardKnown)
+        float cardMs = 0.0f;        // in + out; unknown (a plugin host): about 2 x block + 1.5 ms
+        bool cardKnown = false;
         float totalMs = 0.0f;       // all of the above, without the network itself
         float oneBarMs = 0.0f;      // one-bar mode: what everyone hears instead (one bar at the session tempo)
         float mbitPerFriend = 0.0f; // upload to one friend, packet headers included
@@ -39,28 +45,49 @@ namespace jamui
     constexpr float sessionRate = 48000.0f;
     constexpr int headerBytes = 28 + 28 + 4; // IPv4 + UDP, the audio header (stream), the network framing (approx.)
     constexpr float opusDelayMs = 2.5f;     // look-ahead (the 2.5 ms frame is the packet, counted there)
+    constexpr float calmJitterMs = 1.0f;    // the auto buffer's jitter allowance on a calm connection (+ its 1 ms floor)
 
     inline float packetMs (int samples) { return 1000.0f * (float) samples / sessionRate; }
 
+    // me: this computer's sound card, chain and block (Engine::localLatency).
     // channels: 2 for the finished sound, 1 for raw input from a mono guitar (raw input is mono when the input is)
-    inline Estimate estimate (const jam::LatencyOptions& o, float cardMs, double bpm, int channels)
+    inline Estimate estimate (const jam::LatencyOptions& o, const jam::LocalLatency& me, double bpm, int channels)
     {
         Estimate e;
-        e.packetMs = packetMs (o.packetSamples);
+        const float block = juce::jmax (0.3f, me.blockMs);
+        const int frames = jam::latency::packetFrames (o, block);
+        e.packetMs = packetMs (frames);
         e.codecMs = o.compression ? opusDelayMs : 0.0f;
-        const float autoBuffer = juce::jmax (2.0f * e.packetMs, 4.0f);   // typical for a calm connection
-        e.bufferMs = (o.autoJitterBuffer ? autoBuffer : o.jitterMs) + (o.lossProtection ? e.packetMs : 0.0f);
-        e.cardMs = cardMs;
-        e.totalMs = e.packetMs + e.codecMs + e.bufferMs + e.cardMs;
+        // the friend's level after an arrival settles at one render block (+5 samples, 0.2 % drift room) + one
+        // packet + the safety; a packet is not waited for twice (JamEngine.h), so only the send hold is added
+        const float needMs = jam::latency::msOf (std::ceil (block * 0.001 * jam::latency::rate * 1.002) + 5.0);
+        float safety = o.autoJitterBuffer ? 1.0f + calmJitterMs : o.jitterMs;
+        if (o.lossProtection)
+            safety = juce::jmax (safety, e.packetMs + 1.0f);
+        e.bufferMs = juce::jmax (0.0f, jam::latency::sendHoldMs (e.packetMs, block) + needMs + safety);
+        e.chainMs = me.chainMs;     // raw input: the friend's copy runs the same chain
+        e.cardKnown = me.cardKnown();
+        e.cardInMs = me.inMs;
+        e.cardOutMs = me.outMs;
+        e.cardMs = e.cardKnown ? me.inMs + me.outMs : 2.0f * block + 1.5f;
+        e.totalMs = e.chainMs + e.codecMs + e.bufferMs + e.cardMs;
         e.oneBarMs = (float) (4.0 * 60000.0 / juce::jlimit (30.0, 300.0, bpm));
 
-        e.packetsPerSecond = (int) std::round (sessionRate / (float) juce::jmax (16, o.packetSamples));
+        e.packetsPerSecond = (int) std::round (sessionRate / (float) juce::jmax (16, frames));
         const float audioBps = o.compression ? (float) o.opusKbps * 1000.0f      // per stream, whatever the channels
                                              : 16.0f * sessionRate * (float) channels;
         const float payload = audioBps * (o.lossProtection ? 2.0f : 1.0f);
         const float headers = (float) (headerBytes * 8 * e.packetsPerSecond);
         e.mbitPerFriend = (payload + headers) / 1.0e6f;
         return e;
+    }
+
+    // Without this computer's figures: blockMs as the block, sound card unknown (one-bar length, upload)
+    inline Estimate estimate (const jam::LatencyOptions& o, float blockMs, double bpm, int channels)
+    {
+        jam::LocalLatency me;
+        me.blockMs = blockMs > 0.0f ? blockMs : packetMs (128);
+        return estimate (o, me, bpm, channels);
     }
 
     // (juce::String (v, 0) would print every digit, "26.2171")
@@ -76,17 +103,23 @@ namespace jamui
         if (! p.connected)
             return p.name + " is not connected right now.";
         const float codec = p.compression ? opusDelayMs : 0.0f;
-        const float rest = juce::jmax (0.0f, p.totalMs - p.networkMs - p.bufferMs - codec);
+        const bool theirKnown = p.captureMs > 0.0f;
+        const float yours = juce::jmax (0.0f, p.totalMs - p.networkMs - codec - (theirKnown ? p.captureMs : 0.0f));
         juce::String s;
-        s << p.name << ": " << ms (p.totalMs) << " from their pick to your ears\n"
-          << "  network   " << ms (p.networkMs) << "  (ping " << ms (p.pingMs) << ", jitter " << ms (p.jitterMs)
-                            << (p.relayed ? ", relayed by the host" : "") << ")\n"
-          << "  buffer    " << ms (p.bufferMs) << "  (your safety buffer for them)\n"
-          << "  codec     " << (p.compression ? ms (codec) + "  (Opus)" : juce::String ("0 ms  (uncompressed)")) << "\n"
-          << "  packet    " << ms (rest) << "  (packet size + both sound cards)\n"
-          << "  lost      " << juce::String (p.lossPercent, 1) << " % of packets, last 10 s";
+        s << p.name << ": " << ms (p.totalMs) << " from their pick to your ears\n";
+        if (theirKnown)
+            s << "  their side  " << ms (p.captureMs) << "  (their sound card in + sound chain + packet)\n";
+        s << "  network     " << ms (p.networkMs) << "  (ping " << ms (p.pingMs) << ", jitter " << ms (p.jitterMs)
+                              << (p.relayed ? ", relayed by the host" : "") << ")\n"
+          << "  codec       " << (p.compression ? ms (codec) + "  (Opus)" : juce::String ("0 ms  (uncompressed)")) << "\n";
+        if (theirKnown)
+            s << "  your side   " << ms (yours) << "  (safety buffer, now " << ms (p.bufferMs) << ", + your sound card out)\n";
+        else
+            s << "  both sides  " << ms (yours) << "  (estimated: their Jam Sesh is older and does not report its side;"
+                                                  " safety buffer now " << ms (p.bufferMs) << ")\n";
+        s << "  lost        " << juce::String (p.lossPercent, 1) << " % of packets, last 10 s";
         if (std::abs (p.driftPpm) > 0.05f)
-            s << "\n  clock     " << juce::String (p.driftPpm, 1) << " ppm against yours";
+            s << "\n  clock       " << juce::String (p.driftPpm, 1) << " ppm against yours";
         return s;
     }
 
@@ -162,7 +195,9 @@ namespace jamui
             p.networkMs = p.pingMs * 0.5f;
             p.jitterMs = 0.6f + 0.5f * (float) i;
             p.bufferMs = 5.3f + (float) i;
-            p.totalMs = p.isSelf ? 0.0f : p.networkMs + p.bufferMs + (p.compression ? 5.0f : 0.0f) + 2.7f + 6.0f;
+            p.captureMs = i == 3 ? 0.0f : 6.0f + 0.4f * (float) i;      // Daan: an older version
+            p.totalMs = p.isSelf ? 0.0f : (p.captureMs > 0.0f ? p.captureMs : 5.0f) + p.networkMs
+                                          + (p.compression ? opusDelayMs : 0.0f) + p.bufferMs - 1.3f + 4.5f;
             p.lossPercent = i == 5 ? 2.4f : 0.0f;
             p.driftPpm = 3.0f * (float) i - 6.0f;
             p.levelDb = -6.0f - 7.0f * (float) i;

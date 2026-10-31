@@ -171,7 +171,10 @@ struct Session::Impl : private juce::Timer
         if (inSession())
         {
             for (auto& p : peers)
+            {
                 tellNetworkMs (engine, p.id, p.rttMs * 0.5f);
+                engine.setPeerCaptureMs (p.id, p.captureMs);
+            }
 
             double bpm = 0, ppq = 0;
             bool playing = false;
@@ -196,6 +199,9 @@ struct Session::Impl : private juce::Timer
                     meta.sendMode = options.sendMode;
                     meta.compression = options.compression;
                     meta.hasTrack = track.load() != nullptr;
+                    // input jack -> packet sent (sound card in + chain + send hold), follows device, chain and
+                    // block changes within 100 ms
+                    meta.captureMs = latency::captureMs (engine.localLatency (*proc), options);
                     network.setLocalMeta (meta);
                 }
 
@@ -424,6 +430,7 @@ std::vector<PeerInfo> Session::players() const
         i.sendMode = p.sendMode;
         i.compression = p.compression;
         i.pingMs = p.rttMs;
+        i.captureMs = p.captureMs;
         i.networkMs = s.networkMs > 0.0f ? s.networkMs : p.rttMs * 0.5f;
         i.jitterMs = s.jitterMs;
         i.bufferMs = s.bufferMs;

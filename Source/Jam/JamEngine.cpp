@@ -4,6 +4,7 @@
 #include "JamReplica.h"
 #include "JamPort.h"
 #include "../UI/ViewFeed.h"
+#include "../PluginProcessor.h"
 #include <array>
 
 // Owner: stream soldier.
@@ -13,6 +14,7 @@ namespace jam
     {
         constexpr int maxChunk = 1024;      // friends are mixed in chunks of at most this many samples
         constexpr int feedSize = 16384;     // per view-tile ring
+        constexpr size_t midiBytes = (size_t) (maxChunk / 32) * 32 * 12;
 
         // A friend's sound for their view tile: what arrives here (after their replica in raw mode)
         struct PeerFeed : public ViewFeed
@@ -41,16 +43,18 @@ namespace jam
                 scratch.setSize (2, maxChunk);
                 silence.setSize (2, maxChunk);
                 silence.clear();
-                midi.ensureSize (4096);
-                merged.ensureSize (4096);
                 for (int ch = 1; ch <= 16; ++ch)
                     notesOff.addEvent (juce::MidiMessage::allNotesOff (ch), 0);
+                // room for a whole chunk's MIDI (32 events per packet, packets of >= 32 frames, ~9 bytes an event)
+                // plus the notes-off, so nothing grows on the audio thread
+                midi.ensureSize (midiBytes);
+                merged.ensureSize (midiBytes + (size_t) notesOff.data.size());
             }
 
             std::atomic<PeerId> id { noPeer };
             std::atomic<bool> active { false };
             ReceiveStream streams[2];               // 0: their sound (finished or raw), 1: their backing track
-            std::atomic<float> volume { 1.0f }, networkMs { 0.0f }, levelDb { -100.0f };
+            std::atomic<float> volume { 1.0f }, networkMs { 0.0f }, levelDb { -100.0f }, captureMs { 0.0f };
             std::atomic<bool> muted { false };
             PeerFeed feed;
 
@@ -144,6 +148,7 @@ namespace jam
         slot->volume = 1.0f;
         slot->muted = false;
         slot->networkMs = 0.0f;
+        slot->captureMs = 0.0f;
         slot->levelDb = -100.0f;
         for (auto& st : slot->streams)
             st.requestReset();
@@ -208,6 +213,33 @@ namespace jam
     {
         if (auto* p = impl->find (id))
             p->networkMs.store (juce::jmax (0.0f, ms), std::memory_order_relaxed);
+    }
+
+    void Engine::setPeerCaptureMs (PeerId id, float ms)
+    {
+        if (auto* p = impl->find (id))
+            p->captureMs.store (juce::jlimit (0.0f, 1000.0f, ms), std::memory_order_relaxed);
+    }
+
+    float Engine::lastBlockMs() const noexcept
+    {
+        return (float) impl->lastBlockMs.load (std::memory_order_relaxed);
+    }
+
+    LocalLatency Engine::localLatency (ClodScopeProcessor& proc) const
+    {
+        LocalLatency l;
+        const double sr = proc.currentSampleRate.load();
+        if (! (sr > 1000.0))
+            return l;
+        const auto ms = [sr] (double samples) { return (float) (juce::jmax (0.0, samples) * 1000.0 / sr); };
+        l.inMs = ms (proc.deviceInputLatency.load (std::memory_order_relaxed));
+        l.outMs = ms (proc.deviceOutputLatency.load (std::memory_order_relaxed));
+        l.chainMs = ms (proc.getLatencySamples());
+        l.blockMs = lastBlockMs();
+        if (! (l.blockMs > 0.0f))
+            l.blockMs = ms (juce::jmax (16, proc.getBlockSize()));
+        return l;
     }
 
     void Engine::setSessionTempo (double bpm)
@@ -390,9 +422,21 @@ namespace jam
         st.hasTrack = p->streams[1].active.load()
                        &&(juce::int64) juce::Time::getMillisecondCounterHiRes() - p->streams[1].lastArrivalMs.load() < 2000;
 
-        // their pick attack to your ears: they wait a packet (and the codec), the network, our buffer (which
-        // already holds our block); plus on average half of their own audio block before it is sent
-        st.totalMs = s.packetMs.load() + s.codecMs.load() + st.networkMs + st.bufferMs + 0.5f * (float) impl->lastBlockMs.load();
+        // their pick attack to your ears (the model is in JamEngine.h): their side (sound card in + chain + send
+        // hold, as they report it), the codec, the network, our receive level less one packet, our sound card out
+        LocalLatency me;
+        if (auto* port = impl->session.playerPort())
+            me = localLatency (port->processor());
+        else
+            me.blockMs = lastBlockMs();
+        const bool raw = st.sendMode == SendMode::rawInput;
+        const float theirs = p->captureMs.load (std::memory_order_relaxed);
+        // an older friend sends no figure: our chain and one block (their send hold back then) stand in
+        st.captureMs = theirs > 0.0f ? theirs : me.chainMs + me.blockMs;
+        // raw input: their figure leaves out the chain, which their replica runs here
+        const float replicaMs = raw && theirs > 0.0f ? me.chainMs : 0.0f;
+        st.totalMs = st.captureMs + replicaMs + s.codecMs.load() + st.networkMs
+                   + juce::jmax (0.0f, st.bufferMs - 0.5f * s.packetMs.load()) + me.outOrGuess();
         if (impl->oneBarMode.load())
         {
             double bpm = impl->sessionTempo.load();
