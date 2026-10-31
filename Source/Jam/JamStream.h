@@ -198,6 +198,10 @@ namespace jam
         RateTracker senderRate;                                      // producer side
         RateTracker cardRate;                                        // consumer side
         double consumedSeconds = 0.0;
+        static constexpr int numRenderWindows = 5;                   // render-side headroom (consumer side)
+        double renderSpreads[numRenderWindows] {};
+        int renderSpreadCount = 0, renderSpreadHead = 0;
+        double renderWinStart = -1.0, renderWinMin = 0.0, renderWinMax = 0.0, renderHeadroom = 0.0;
         std::atomic<double> senderPpm { 0.0 };
         std::atomic<bool> senderRateReady { false };
         bool haveLevel = false;

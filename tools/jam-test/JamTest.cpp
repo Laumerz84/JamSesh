@@ -8,8 +8,10 @@
 // click detected in the receiver's output.
 // Owner: test soldier.
 //
-//   ClodJamTest <outDir> [--quick] [case ...]        run cases (default: all), summary in <outDir>\summary.txt
+//   ClodJamTest <outDir> [--quick] [--packet=N] [case ...]   run cases (default: all), summary in <outDir>\summary.txt
 //      cases: local connect2 connect4 latency quality jitter drift raw rawmidi track onebar cpu
+//             lbN[pM] (latency at host block N, packet M; p0 = auto)  jbN[pM] (jitter5 / jitter1 / loss5 protected at block N)
+//      --packet=N: packet size for every case that sets none (0 = auto)
 //   ClodJamTest --reach [--live]   jam::Reach against a fake router and STUN server (ReachTest.cpp); --live also
 //                                  asks the real ones, read only
 //   ClodJamTest --player host|join --out <file> [options]   one player (spawned by the above, or by ClodScopeSnap)
@@ -547,6 +549,10 @@ namespace
 
         std::unique_ptr<juce::AudioProcessor> base (createPluginFilter());
         auto& proc = dynamic_cast<ClodScopeProcessor&> (*base);
+        // the simulated card adds no latency of its own: "known, ~0" (1 sample), so the shown totals use
+        // the real formula instead of their unknown-card fallbacks
+        proc.deviceInputLatency = 1;
+        proc.deviceOutputLatency = 1;
         proc.setPlayConfigDetails (2, 2, sampleRate, a.block);
 
         std::unique_ptr<juce::AudioProcessor> trackBase;
@@ -557,6 +563,8 @@ namespace
         {
             trackBase.reset (createPluginFilter());
             trackBase->setPlayConfigDetails (2, 2, sampleRate, a.block);
+            dynamic_cast<ClodScopeProcessor&> (*trackBase).deviceInputLatency = 1;
+            dynamic_cast<ClodScopeProcessor&> (*trackBase).deviceOutputLatency = 1;
             if (auto* port = dynamic_cast<ClodScopeProcessor&> (*trackBase).getJamPort())
                 port->setRole (jam::Role::track);
         }
@@ -980,7 +988,10 @@ namespace
         {
             juce::StringArray a;
             a.add ("--signal"); a.add (signal);
-            if (opt.isNotEmpty()) { a.add ("--opt"); a.add (opt); }
+            auto o = opt;
+            if (defaultPacket.isNotEmpty() && ! o.contains ("packet="))   // --packet=N: every case that sets none
+                o = o.isNotEmpty() ? o + ",packet=" + defaultPacket : "packet=" + defaultPacket;
+            if (o.isNotEmpty()) { a.add ("--opt"); a.add (o); }
             a.add ("--block"); a.add (juce::String (block));
             if (ppm != 0.0) { a.add ("--ppm"); a.add (juce::String (ppm)); }
             return a;
@@ -1013,6 +1024,8 @@ namespace
         }
 
         double cpu2 = -1, cpu4 = -1, cpuRaw4 = -1;
+        int latBlock = 128;               // host block of the lbN / jbN cases
+        juce::String defaultPacket;       // --packet=N on the command line (0 = auto)
 
         void connect (int players, double seconds)
         {
@@ -1059,8 +1072,8 @@ namespace
             run.name = caseName;
             run.netsim = netsim;
             run.seconds = seconds;
-            run.add ("host", common ("clicks:" + juce::String (clickMs), opt));
-            run.add ("p2", common ("silence", opt));
+            run.add ("host", common ("clicks:" + juce::String (clickMs), opt, latBlock));
+            run.add ("p2", common ("silence", opt, latBlock));
             exec (run);
             if (failed (run, caseName))
                 return;
@@ -1119,8 +1132,8 @@ namespace
             run.name = caseName;
             run.netsim = netsim;
             run.seconds = seconds;
-            run.add ("host", common ("sine:1000:0.5", opt));
-            run.add ("p2", common ("silence", opt));
+            run.add ("host", common ("sine:1000:0.5", opt, latBlock));
+            run.add ("p2", common ("silence", opt, latBlock));
             exec (run);
             if (failed (run, caseName))
                 return;
@@ -1420,16 +1433,18 @@ namespace
         }
     };
 
-    int runOrchestrator (const juce::File& outDir, juce::StringArray cases, bool quick)
+    int runOrchestrator (const juce::File& outDir, juce::StringArray cases, bool quick, const juce::String& packet)
     {
         outDir.createDirectory();
         Orchestrator o;
+        o.defaultPacket = packet;
         o.outDir = outDir;
         o.exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
         if (cases.isEmpty())
             cases = { "local", "connect2", "connect4", "latency", "quality", "jitter", "drift", "raw", "rawmidi", "track", "onebar", "cpu" };
         const double q = quick ? 0.4 : 1.0;
-        o.line ("Clod Jam Test " + juce::Time::getCurrentTime().toString (true, true) + (quick ? " (quick)" : ""));
+        o.line ("Clod Jam Test " + juce::Time::getCurrentTime().toString (true, true) + (quick ? " (quick)" : "")
+                + (packet.isNotEmpty() ? " packet=" + packet : juce::String()));
         for (auto& c : cases)
         {
             if (c == "local") o.local();
@@ -1445,6 +1460,21 @@ namespace
             {
                 o.quality ("quality_pcm", "comp=0", 80.0);
                 o.quality ("quality_opus", "comp=1,kbps=128", 25.0);
+            }
+            if (c.startsWith ("lb") || c.startsWith ("jb"))   // lb64p64 = latency at host block 64, packet 64 (p0 = auto); jb64[pM] = jitter5, jitter1, loss5 protected at that block
+            {
+                o.latBlock = c.fromFirstOccurrenceOf ("b", false, false).upToFirstOccurrenceOf ("p", false, false).getIntValue();
+                const auto pk = c.fromFirstOccurrenceOf ("p", false, false);
+                const juce::String opt = pk.isNotEmpty() ? "packet=" + pk : juce::String();
+                if (c.startsWith ("lb"))
+                    o.latency (c, opt, {}, 12.0 * q + 4.0, 500.0, 0.0);
+                else
+                {
+                    o.dropouts (c + "_jitter5", opt, "jitter=5", 20.0 * q + 4.0, 0);
+                    o.dropouts (c + "_jitter1", opt, "jitter=1", 20.0 * q + 4.0, 0);
+                    o.dropouts (c + "_loss5p", opt.isNotEmpty() ? opt + ",prot=1" : "prot=1", "loss=5", 20.0 * q + 4.0, -1);
+                }
+                o.latBlock = 128;
             }
             if (c == "jitter")
             {
@@ -1527,9 +1557,14 @@ int main (int argc, char** argv)
     }
     const juce::File outDir (juce::File::getCurrentWorkingDirectory().getChildFile (args[0]));
     const bool quick = args.contains ("--quick");
+    juce::String packet;
     juce::StringArray cases;
     for (int i = 1; i < args.size(); ++i)
+    {
+        if (args[i].startsWith ("--packet="))
+            packet = args[i].fromFirstOccurrenceOf ("=", false, false);
         if (! args[i].startsWith ("--"))
             cases.add (args[i]);
-    return runOrchestrator (outDir, cases, quick);
+    }
+    return runOrchestrator (outDir, cases, quick, packet);
 }
