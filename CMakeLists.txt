@@ -31,14 +31,15 @@ set(OPUS_DRED OFF CACHE BOOL "" FORCE)
 set(OPUS_OSCE OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/opus EXCLUDE_FROM_ALL)
 
-# The plugin (VST3) and the standalone app (Clod Scope.exe) are built from the same code
+# The plugin (VST3) and the standalone app are built from the same code, and both are called Jam Sesh. Until
+# 1.4.0 the plugin was "Clod Scope": the bundle ID and the plugin codes stay, so hosts still find it.
 juce_add_plugin(ClodScope
     COMPANY_NAME "Clod Codes"
     BUNDLE_ID com.clodcodes.clodscope
     PLUGIN_MANUFACTURER_CODE Cldc
     PLUGIN_CODE Csc1
     FORMATS VST3 Standalone
-    PRODUCT_NAME "Clod Scope"
+    PRODUCT_NAME "Jam Sesh"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
@@ -62,8 +63,8 @@ if(EXISTS "${CLOD_RC}")
     endif()
 endif()
 
-# The standalone app is called Jam Sesh (Jam Sesh.exe, CLOD_APP_NAME in the code); the plugin keeps the
-# name Clod Scope. The app gets its own resources in place of JUCE's: its icon (CLOD_APP_ICON, drawn by
+# The standalone app (Jam Sesh.exe, CLOD_APP_NAME in the code) gets its own resources in place of JUCE's: its
+# icon (CLOD_APP_ICON, drawn by
 # tools/icon/make-icon.ps1) and a version resource, so Windows (Task Manager, the Firewall prompt, the
 # volume mixer) shows the app's name too. Like JUCE's, they compile in an object library of their own,
 # without the plugin's compile definitions.
@@ -169,7 +170,7 @@ function(clod_add_tool target product)
     set_target_properties(${target} PROPERTIES EXCLUDE_FROM_ALL TRUE)
     target_sources(${target} PRIVATE ${CLOD_SOURCES} ${ARGN})
     target_compile_definitions(${target} PRIVATE
-        JucePlugin_Name="Clod Scope"
+        JucePlugin_Name="Jam Sesh"
         JucePlugin_VersionString="1.0.0"
         "CLOD_APP_NAME=\"${CLOD_APP_NAME}\""
         JUCE_MODAL_LOOPS_PERMITTED=1

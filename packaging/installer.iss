@@ -1,4 +1,4 @@
-; Jam Sesh's Windows installer (Inno Setup 6): the app, the Clod Scope VST3 plugin, shortcuts, an optional
+; Jam Sesh's Windows installer (Inno Setup 6): the app, the Jam Sesh VST3 plugin, shortcuts, an optional
 ; firewall rule for hosting, and an uninstaller in Windows' Apps list. One admin prompt. Running a newer
 ; installer updates in place (the AppId never changes); settings, presets and recordings are not touched,
 ; also not by the uninstaller. packaging\make-dist.ps1 compiles it into dist\JamSesh-<version>-Setup.exe:
@@ -56,13 +56,15 @@ CloseApplications=yes
 RestartApplications=no
 
 [Tasks]
-Name: "plugin"; Description: "Install the Clod Scope plugin for FL Studio and other DAWs (VST3)"
+Name: "plugin"; Description: "Install the Jam Sesh plugin for FL Studio and other DAWs (VST3)"
 Name: "desktopicon"; Description: "Put a Jam Sesh shortcut on the desktop"
 Name: "firewall"; Description: "Let Jam Sesh through the Windows firewall, so friends can join when you host"; Check: IsAdminInstallMode
 
 [InstallDelete]
 ; an update brings its own source code: the previous version's goes
 Type: files; Name: "{app}\Source\*-Source.zip"
+; the plugin's name until 1.4.0 (the same plugin: hosts would list it twice)
+Type: filesandordirs; Name: "{autocf}\VST3\Clod Scope.vst3"
 
 [Files]
 Source: "{#Stage}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -70,7 +72,7 @@ Source: "{#Stage}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\Licenses\*"; DestDir: "{app}\Licenses"; Flags: ignoreversion
 Source: "{#Stage}\*-Source.zip"; DestDir: "{app}\Source"; Flags: ignoreversion
-Source: "{#Stage}\Clod Scope.vst3\*"; DestDir: "{autocf}\VST3\Clod Scope.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: plugin
+Source: "{#Stage}\Jam Sesh.vst3\*"; DestDir: "{autocf}\VST3\Jam Sesh.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: plugin
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Comment: "Play together online with friends"

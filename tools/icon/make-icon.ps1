@@ -1,5 +1,6 @@
 # Draws the Jam Sesh app icon and writes Source\Resources\JamSesh.ico, which the app's version resource
-# (Source\App\AppResources.rc.in) embeds. "J.S." in the New Rocker font, styled like the JAM SESH title in
+# (Source\App\AppResources.rc.in) embeds, and Source\Resources\JamSesh-1024.png for the Mac builds (JUCE
+# turns it into the .icns). "J.S." in the New Rocker font, styled like the JAM SESH title in
 # the Jam view (JamView.cpp paintTitle): slanted forward, amber to orange fill, light outline, orange
 # glow and a stage light, on a dark rounded square. Small sizes drop the glow and outline so the letters
 # stay readable. Uses .NET's System.Drawing, so it runs on any Windows PowerShell:
@@ -161,6 +162,12 @@ foreach ($b in $blobs) { $w.Write($b) }
 $w.Flush()
 [System.IO.File]::WriteAllBytes($icoFile, $out.ToArray())
 "Wrote $icoFile ({0:N0} KB, sizes {1})" -f ($out.Length / 1KB), ($sizes -join ", ")
+
+# the Mac icon: one 1024 x 1024 PNG, drawn like the large sizes
+$macPng = Join-Path $root "Source\Resources\JamSesh-1024.png"
+$mac = Draw 1024
+$mac.Save($macPng, [System.Drawing.Imaging.ImageFormat]::Png)
+"Wrote $macPng"
 
 if ($PreviewDir) {
     New-Item -ItemType Directory -Force $PreviewDir | Out-Null

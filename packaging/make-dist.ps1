@@ -1,10 +1,10 @@
 # Packages the built app and plugin with their source code for sharing (run by package.bat after the build):
-#   <OutDir>\Jam Sesh <version>\              Jam Sesh.exe, Clod Scope.vst3, README.txt, LICENSE.txt,
+#   <OutDir>\Jam Sesh <version>\              Jam Sesh.exe, Jam Sesh.vst3, README.txt, LICENSE.txt,
 #                                             Licenses\ and JamSesh-<version>-Source.zip
 #   <OutDir>\JamSesh-<version>-Windows.zip    the same folder, zipped
 #   <OutDir>\JamSesh-<version>-Setup.exe      the installer (packaging\installer.iss), when Inno Setup 6 is
 #                                             installed (or CLOD_ISCC points at its ISCC.exe)
-# Jam Sesh and Clod Scope are GPLv3 (LICENSE.txt), so every shared copy carries the source code: the
+# Jam Sesh is GPLv3 (LICENSE.txt), so every shared copy carries the source code: the
 # source zip holds what's needed to build them, and nothing private (never docs\, which holds signed
 # paperwork). The version comes from project(ClodScope VERSION x.y.z) in CMakeLists.txt, the app's name
 # from CLOD_APP_NAME there.
@@ -26,7 +26,7 @@ if ($cmake -notmatch 'set\(CLOD_APP_NAME "([^"]+)"\)') { throw "No app name (CLO
 $appName = $Matches[1]
 $fileName = $appName.Replace(" ", "")
 
-$bundle = Join-Path $BuildDir "ClodScope_artefacts\Release\VST3\Clod Scope.vst3"
+$bundle = Join-Path $BuildDir "ClodScope_artefacts\Release\VST3\$appName.vst3"
 $app = Join-Path $BuildDir "ClodScope_artefacts\Release\Standalone\$appName.exe"
 if (-not (Test-Path $bundle)) { throw "Build the plugin first: $bundle is missing" }
 if (-not (Test-Path $app)) { throw "Build the standalone app first: $app is missing" }
@@ -63,7 +63,7 @@ function Write-Text([string]$from, [string]$to) {
 
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
-Copy-Item -Recurse $bundle (Join-Path $stage "Clod Scope.vst3")
+Copy-Item -Recurse $bundle (Join-Path $stage "$appName.vst3")
 Copy-Item $app (Join-Path $stage "$appName.exe")
 Write-Text (Join-Path $PSScriptRoot "README.txt") (Join-Path $stage "README.txt")
 Write-Text (Join-Path $root "LICENSE.txt") (Join-Path $stage "LICENSE.txt")

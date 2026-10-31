@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem Builds Jam Sesh (the app) and Clod Scope (the plugin) and packages them with their source code for
+rem Builds Jam Sesh (the app and the plugin) and packages them with their source code for
 rem sharing in dist\ (a folder and a zip). Installs nothing; see packaging\make-dist.ps1.
 
 set "VSDIR=G:\clod codes\toolchains\VS2022-BuildTools"
