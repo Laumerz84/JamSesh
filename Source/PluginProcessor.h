@@ -93,9 +93,8 @@ private:
     juce::AudioBuffer<float> dryBuffer;
     juce::SmoothedValue<float> inGainSm, outGainSm, mixSm;
 
-    // the FX rack may add latency; the dry path of the global mix is delayed to match
-    juce::AudioBuffer<float> dryDelay;
-    int dryDelayPos = 0, latency = 0;
+    // the FX rack's latency (the rack delays the dry path of the global mix to match: FxRack::alignDry)
+    int latency = 0;
 
     float holdSample[2] {};
     int holdCounter[2] {};

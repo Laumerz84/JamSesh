@@ -33,7 +33,7 @@ namespace jam
         bool compression = false;      // Opus; off = uncompressed 16-bit PCM (no codec delay, ~0.77 Mbit/s per mono channel)
         int  opusKbps = 128;           // per stream when compression is on
         bool lossProtection = false;   // repeat each packet's audio in the next one: survives single lost packets, doubles bandwidth
-        int  packetSamples = 128;      // samples per packet at 48 kHz: 32 / 64 / 128 / 256 (0.7 / 1.3 / 2.7 / 5.3 ms); 0 = auto (follows the host's block, 64..128)
+        int  packetSamples = 0;        // samples per packet at 48 kHz: 32 / 64 / 128 / 256 (0.7 / 1.3 / 2.7 / 5.3 ms); 0 = auto (follows the host's block, 64..128)
         bool autoJitterBuffer = true;  // adapt the safety buffer to the connection; off = jitterMs fixed
         float jitterMs = 10.0f;
         bool driftCorrection = true;   // stretch each friend's audio to this sound card's clock (inaudible, prevents dropouts)

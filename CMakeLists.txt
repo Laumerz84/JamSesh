@@ -5,7 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Static CRT so the .vst3 and the .exe have no runtime DLL dependencies
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(ClodScope VERSION 1.2.3)
+project(ClodScope VERSION 1.3.0)
 
 add_subdirectory(JUCE)
 

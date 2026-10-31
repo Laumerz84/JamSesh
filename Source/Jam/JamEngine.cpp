@@ -86,7 +86,7 @@ namespace jam
 
         std::atomic<bool> compression { false }, lossProtection { false }, autoJitter { true },
                           driftCorrection { true }, syncTrack { true }, oneBarMode { false }, rawMode { false };
-        std::atomic<int> opusKbps { 128 }, packetSamples { 128 };
+        std::atomic<int> opusKbps { 128 }, packetSamples { 0 };   // 0 = auto: packets follow the host block (64..128)
         std::atomic<float> jitterMs { 10.0f };
 
         std::atomic<double> sessionTempo { 0.0 }, syncDelay { 0.0 }, lastBlockMs { 0.0 };

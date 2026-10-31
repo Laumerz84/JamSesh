@@ -28,15 +28,16 @@ namespace jam
     // carrying several packets sends its later ones (P - B) / 2 fresher on average (negative hold). When neither
     // divides the other (Opus 120-frame packets in 128-sample blocks) packets end anywhere in a block: P - B / 2.
     // A sound card's latency counts from the block's first sample (as drivers report it: buffer + converters).
-    // Unknown (0: inside a plugin host, or an older friend) falls back to half a block per card.
+    // Unknown (0: inside a plugin host) falls back to a block + 0.75 ms per card, the panel's "2 x block + 1.5"
+    // estimate (a typical driver: its buffer plus converters and a little safety).
     struct LocalLatency
     {
         float inMs = 0.0f, outMs = 0.0f;   // the sound card as its driver reports it; 0 = unknown (a plugin host)
         float chainMs = 0.0f;              // the sound chain (getLatencySamples)
         float blockMs = 0.0f;              // the audio block the host calls with (or prepared for)
         bool cardKnown() const noexcept    { return inMs > 0.0f && outMs > 0.0f; }
-        float inOrGuess() const noexcept   { return inMs > 0.0f ? inMs : 0.5f * blockMs; }
-        float outOrGuess() const noexcept  { return outMs > 0.0f ? outMs : 0.5f * blockMs; }
+        float inOrGuess() const noexcept   { return inMs > 0.0f ? inMs : blockMs + 0.75f; }
+        float outOrGuess() const noexcept  { return outMs > 0.0f ? outMs : blockMs + 0.75f; }
     };
 
     namespace latency

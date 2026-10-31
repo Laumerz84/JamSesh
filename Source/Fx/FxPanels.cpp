@@ -947,8 +947,10 @@ juce::String FxRack::Impl::describe()
         lines.add ("Limiter: +" + t ("fxLimInput") + " in, ceiling " + t ("fxLimCeiling") + ", release " + t ("fxLimRelease")
                    + "; now reducing " + juce::String (-limiter.grDb.load(), 1) + " dB");
 
+    // the plugin reports both (hosts expect a constant latency); the app only delays by the modules that are on
+    const int latency = liveLatency ? (on (FxRack::amp) ? latAmp : 0) + (on (FxRack::limiter) ? latLim : 0) : latAmp + latLim;
     const juce::String head = "FX rack (Amp -> Cab -> EQ -> Comp -> Mod -> Delay -> Reverb -> Limiter), latency "
-                            + juce::String (latAmp + latLim) + " samples.";
+                            + juce::String (latency) + " samples.";
     if (lines.isEmpty())
         return head + "\nAll modules are off: the rack passes audio unchanged.";
     return head + "\n" + lines.joinIntoString ("\n");
