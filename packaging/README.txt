@@ -6,12 +6,26 @@ sound kit for guitar, voice or any other input: it turns what you play into a sy
 whole chords), lets you shape the wave by hand, runs it through an effects rack, and shows the sound
 as a scope, 3D views and an orbital cloud. 126 presets included.
 
-In this folder:
+What you get:
 - Jam Sesh.exe                   the app: no DAW needed, plug in your guitar and play
 - Clod Scope.vst3                the same sound kit as a plugin, for FL Studio and other DAWs
 - LICENSE.txt                    the licence: GNU GPL version 3 (see FREE SOFTWARE below)
 - Licenses                       the licences of the parts it's built from
 - JamSesh-{VERSION}-Source.zip   the source code
+
+
+INSTALL OR UPDATE
+
+Two downloads, the same Jam Sesh:
+- JamSesh-{VERSION}-Setup.exe, the installer: installs the app and the plugin with one admin
+  prompt, adds Jam Sesh to the Start menu (and the desktop if you like), can let it through the
+  Windows firewall so friends can join when you host, and puts an uninstaller in Settings > Apps.
+  To update, run the newer installer: it replaces the old version and asks you to close Jam Sesh
+  or your DAW if they are open.
+- JamSesh-{VERSION}-Windows.zip: nothing to install. Unzip it anywhere and run Jam Sesh.exe; for
+  the plugin, see INSTALL THE PLUGIN below. To update, replace the files with the newer ones.
+
+Either way your settings, presets and recordings stay when you update.
 
 
 REQUIREMENTS
@@ -25,10 +39,10 @@ REQUIREMENTS
 
 THE APP (Jam Sesh.exe)
 
-Nothing to install: double-click Jam Sesh.exe (you can keep this folder anywhere).
+Installed: start Jam Sesh from the Start menu. From the zip: double-click Jam Sesh.exe.
 
-The app isn't signed, so the first time Windows SmartScreen may say "Windows protected your PC".
-Click "More info", then "Run anyway".
+The app and the installer aren't signed, so the first time Windows SmartScreen may say "Windows
+protected your PC". Click "More info", then "Run anyway".
 
 The bar under the top of the window:
 - Audio      pick your audio interface, its inputs and outputs, sample rate and buffer size.
@@ -48,6 +62,8 @@ The app remembers its window, audio settings, sound and track between runs.
 
 
 INSTALL THE PLUGIN
+
+The installer does this for you. From the zip:
 
 1. Copy the "Clod Scope.vst3" folder into
 
@@ -129,10 +145,14 @@ Recordings go to           Documents\Clod Scope\Recordings
 
 UNINSTALL
 
-Delete this folder (the app keeps its settings in %APPDATA%\Clod Scope; delete that too if
-you like), and
-C:\Program Files\Common Files\VST3\Clod Scope.vst3 if you installed the plugin
-(and Documents\Clod Scope too if you also want your saved presets and recordings gone).
+Installed with the installer: Settings > Apps > Jam Sesh > Uninstall. It removes the app, the
+plugin, the shortcuts and the firewall rule.
+
+From the zip: delete the folder, and
+C:\Program Files\Common Files\VST3\Clod Scope.vst3 if you installed the plugin.
+
+Either way your settings stay in %APPDATA%\Clod Scope, and your presets and recordings in
+Documents\Clod Scope: delete those too if you want them gone.
 
 
 FREE SOFTWARE

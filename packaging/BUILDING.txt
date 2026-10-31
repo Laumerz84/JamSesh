@@ -20,6 +20,8 @@ CMakeLists.txt        the build
 package.bat           builds the app and the plugin and packages them, with this source code, for
                       sharing (packaging\make-dist.ps1 -> dist\)
 build.bat             builds and installs the plugin into FL Studio (paths at the top of the file)
+packaging\installer.iss   the Windows installer (Inno Setup 6); package.bat builds it too when Inno
+                      Setup is installed
 tools\                test tools: headless snapshots (snap), Jam Sesh network tests (jam-test), an audio
                       latency probe and a test host for the plugin (plugin-test); icon\make-icon.ps1
                       draws the app's icon (Source\Resources\JamSesh.ico)

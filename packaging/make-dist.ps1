@@ -2,6 +2,8 @@
 #   <OutDir>\Jam Sesh <version>\              Jam Sesh.exe, Clod Scope.vst3, README.txt, LICENSE.txt,
 #                                             Licenses\ and JamSesh-<version>-Source.zip
 #   <OutDir>\JamSesh-<version>-Windows.zip    the same folder, zipped
+#   <OutDir>\JamSesh-<version>-Setup.exe      the installer (packaging\installer.iss), when Inno Setup 6 is
+#                                             installed (or CLOD_ISCC points at its ISCC.exe)
 # Jam Sesh and Clod Scope are GPLv3 (LICENSE.txt), so every shared copy carries the source code: the
 # source zip holds what's needed to build them, and nothing private (never docs\, which holds signed
 # paperwork). The version comes from project(ClodScope VERSION x.y.z) in CMakeLists.txt, the app's name
@@ -119,6 +121,18 @@ foreach ($f in Get-ChildItem -Recurse -File $stage) {
 }
 Write-Zip $zip $stageFiles
 
+# the installer, from the same staged folder
+$iscc = @($env:CLOD_ISCC, "G:\clod codes\toolchains\InnoSetup6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+          "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
+        Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+$setup = Join-Path $OutDir "$fileName-$version-Setup.exe"
+if ($iscc) {
+    & $iscc /Q "/DAppVersion=$version" "/DStage=$stage" "/DOutDir=$OutDir" (Join-Path $PSScriptRoot "installer.iss")
+    if ($LASTEXITCODE -ne 0) { throw "The installer didn't build (ISCC exit $LASTEXITCODE)" }
+}
+
 "Packaged $appName $version"
 "  folder: $stage"
 "  zip:    $zip ({0:N1} MB, of which source code {1:N1} MB, {2} files)" -f ((Get-Item $zip).Length / 1MB), ((Get-Item $sourceZip).Length / 1MB), $sourceFiles.Count
+if ($iscc) { "  setup:  $setup ({0:N1} MB)" -f ((Get-Item $setup).Length / 1MB) }
+else { "  setup:  skipped (Inno Setup 6 isn't installed)" }
