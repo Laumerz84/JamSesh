@@ -377,6 +377,11 @@ int main (int argc, char** argv)
         paintSoftwareMs (bar);
         std::cout << "  standalone bar paint: " << juce::String (paintSoftwareMs (bar), 2) << " ms;";
         save (bar, outDir.getChildFile ("standalone_bar.png"));
+
+        // the In button's input picker, with made-up input names (inputs 1 and 2 mixed)
+        auto picker = StandaloneBar::createInputPicker ({ "Mic 1", "Inst 2", "Line 3", "Line 4" }, 0, 1, true, {});
+        picker->setVisible (true);
+        save (*picker, outDir.getChildFile ("input_picker.png"));
     }
 
     if (wantBase)

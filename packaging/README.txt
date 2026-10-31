@@ -50,6 +50,9 @@ The bar under the top of the window:
              No ASIO driver? Use "Windows Audio (Low Latency Mode)" or install ASIO4ALL.
 - Input      your guitar or mic plays through the app. Use headphones: through speakers the
              sound feeds back into the mic or pickup.
+- In         which inputs of your interface to use, one by one (In 2 = input 2 only). One input
+             sits in the middle. Two inputs (a mic and a guitar) are mixed in the middle, or kept
+             left and right for one stereo source.
 - BPM / Tap  the tempo for the delays, the beat-synced effects and Jam Sesh. In a Jam Sesh a friend
              follows the host's tempo.
 - Track      load a backing track to play along with (WAV, MP3, FLAC, OGG, AIFF), or drop the file

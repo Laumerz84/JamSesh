@@ -31,7 +31,7 @@ namespace
     {
     public:
         AudioSettingsView (juce::AudioDeviceManager& dm, std::function<void()> closed)
-            : selector (dm, 0, 2, 0, 2, true, false, true, false), onClosed (std::move (closed))
+            : selector (dm, 0, 2, 0, 2, true, false, false, false), onClosed (std::move (closed))   // inputs one by one
         {
             addAndMakeVisible (selector);
             setSize (540, 440);
@@ -64,6 +64,84 @@ namespace
         std::function<void()> onClosed;
     };
 
+    // The input picker (the bar's In button): one or two of the interface's inputs, and how two reach the
+    // sound. One input always sits in the middle.
+    class InputView : public juce::Component
+    {
+    public:
+        InputView (const juce::StringArray& names, int first, int second, bool mixed, StandaloneBar::InputChange change)
+            : onChange (std::move (change)), empty (names.isEmpty())
+        {
+            secondBox.addItem ("None", 1);
+            for (int i = 0; i < names.size(); ++i)
+            {
+                const auto item = juce::String (i + 1) + "   " + names[i];
+                firstBox.addItem (item, i + 1);
+                secondBox.addItem (item, i + 2);
+            }
+            modeBox.addItem ("Mixed in the middle (a mic and a guitar)", 1);
+            modeBox.addItem ("Left and right (one stereo source)", 2);
+            firstBox.setSelectedId (first >= 0 ? first + 1 : 0, juce::dontSendNotification);
+            secondBox.setSelectedId (second >= 0 ? second + 2 : 1, juce::dontSendNotification);
+            modeBox.setSelectedId (mixed ? 1 : 2, juce::dontSendNotification);
+            modeBox.setEnabled (second >= 0);
+            for (auto* box : { &firstBox, &secondBox, &modeBox })
+            {
+                box->onChange = [this] { changed(); };
+                addChildComponent (box);
+                box->setVisible (! empty);
+            }
+            setSize (440, 196);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto r = getLocalBounds().reduced (10, 0);
+            g.setColour (Palette::text);
+            g.setFont (Theme::font (14.0f, true));
+            g.drawText ("Inputs", r.removeFromTop (30), juce::Justification::centredLeft);
+            g.setColour (Palette::dim);
+            g.setFont (Theme::font (11.5f));
+            if (empty)
+            {
+                g.drawFittedText ("No audio interface is open. Pick one under Audio first.", r.removeFromTop (40),
+                                  juce::Justification::topLeft, 2);
+                return;
+            }
+            for (auto* label : { "Input", "Second input", "Two inputs" })
+                g.drawText (label, r.removeFromTop (32).withWidth (100), juce::Justification::centredLeft);
+            g.drawFittedText ("One instrument or mic? Pick only its input. A mic and a guitar? Pick both and mix them "
+                              "in the middle. Changing inputs restarts the sound for a moment.",
+                              r.reduced (0, 6), juce::Justification::topLeft, 3);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (10, 0).withTrimmedTop (30);
+            for (auto* box : { &firstBox, &secondBox, &modeBox })
+                box->setBounds (r.removeFromTop (32).withTrimmedLeft (104).reduced (0, 3));
+        }
+
+    private:
+        void changed()
+        {
+            const int first = firstBox.getSelectedId() - 1;
+            int second = secondBox.getSelectedId() - 2;
+            if (second == first)
+            {
+                second = -1;
+                secondBox.setSelectedId (1, juce::dontSendNotification);
+            }
+            modeBox.setEnabled (second >= 0);
+            if (onChange && first >= 0)
+                onChange (first, second, modeBox.getSelectedId() != 2);
+        }
+
+        juce::ComboBox firstBox, secondBox, modeBox;
+        StandaloneBar::InputChange onChange;
+        bool empty;
+    };
+
     class InfoView : public juce::Component
     {
     public:
@@ -72,6 +150,7 @@ namespace
             text << CLOD_APP_NAME " " << JucePlugin_VersionString << " - the Clod Scope app\n\n"
                  << "Audio: pick your audio interface; ASIO gives the lowest delay.\n"
                  << "Input: plays your guitar or mic through Clod Scope. Use headphones, or the speakers feed back.\n"
+                 << "In: which inputs of your interface; one input sits in the middle, two can be mixed (a mic and a guitar).\n"
                  << "Tempo: type a BPM or tap it; the delays and one-bar mode follow it. In a Jam Sesh you follow the host.\n"
                  << "Track: load or drop a WAV, MP3, FLAC or OGG file to play along with; it streams to your friends.\n"
                  << "Record: saves what you hear to Documents\\Clod Scope\\Recordings.\n\n"
@@ -93,11 +172,12 @@ namespace
 }
 
 struct StandaloneBar::Impl : private juce::Timer,
-                             private juce::Value::Listener
+                             private juce::Value::Listener,
+                             private juce::ChangeListener
 {
     Impl (StandaloneBar& b, ClodScopeProcessor& p) : bar (b), proc (p), services (AppServices::instance())
     {
-        for (auto* c : std::initializer_list<juce::Component*> { &audioBtn, &inputBtn, &bpmBox, &tapBtn, &loadBtn,
+        for (auto* c : std::initializer_list<juce::Component*> { &audioBtn, &inputBtn, &inBtn, &bpmBox, &tapBtn, &loadBtn,
                                                                  &playBtn, &loopBtn, &volume, &recBtn, &infoBtn })
             bar.addAndMakeVisible (c);
 
@@ -106,6 +186,8 @@ struct StandaloneBar::Impl : private juce::Timer,
 
         inputBtn.setTooltip ("Play your input (guitar, mic) through Clod Scope. Use headphones to avoid feedback.");
         inputBtn.onClick = [this] { toggleInput(); };
+
+        inBtn.onClick = [this] { showInputPicker(); };
 
         bpmBox.setEditable (true, true, false);
         bpmBox.setJustificationType (juce::Justification::centred);
@@ -179,10 +261,13 @@ struct StandaloneBar::Impl : private juce::Timer,
             if (! services->player.hasFile() && last.existsAsFile())
                 services->player.load (last, err);
             services->inputMuted.addListener (this);
+            if (services->deviceManager != nullptr)
+                services->deviceManager->addChangeListener (this);
+            applyRouting();
         }
         else
         {
-            for (auto* c : std::initializer_list<juce::Component*> { &audioBtn, &inputBtn, &loadBtn, &playBtn, &loopBtn, &volume, &recBtn })
+            for (auto* c : std::initializer_list<juce::Component*> { &audioBtn, &inputBtn, &inBtn, &loadBtn, &playBtn, &loopBtn, &volume, &recBtn })
                 c->setEnabled (false);
         }
 
@@ -194,7 +279,11 @@ struct StandaloneBar::Impl : private juce::Timer,
     ~Impl() override
     {
         if (services != nullptr)
+        {
             services->inputMuted.removeListener (this);
+            if (services->deviceManager != nullptr)
+                services->deviceManager->removeChangeListener (this);
+        }
     }
 
     // ---- actions ----
@@ -217,6 +306,83 @@ struct StandaloneBar::Impl : private juce::Timer,
             services->settings->setValue ("clodInputChoice", true);   // from now on the app keeps the user's choice
         if (services->saveAudioState)
             services->saveAudioState();
+        refresh();
+    }
+
+    // ---- inputs: which of the interface's inputs, and how they reach the sound ----
+    juce::AudioIODevice* device() const
+    {
+        return services != nullptr && services->deviceManager != nullptr ? services->deviceManager->getCurrentAudioDevice() : nullptr;
+    }
+
+    std::pair<int, int> activeInputs() const   // channel indices, lowest first; -1 = none
+    {
+        if (auto* d = device())
+        {
+            const auto bits = d->getActiveInputChannels();
+            const int first = bits.findNextSetBit (0);
+            return { first, first >= 0 ? bits.findNextSetBit (first + 1) : -1 };
+        }
+        return { -1, -1 };
+    }
+
+    bool inputsMixed() const   // two inputs: mixed in the middle (default) or left and right
+    {
+        return services == nullptr || services->settings == nullptr || services->settings->getBoolValue ("clodInputMix", true);
+    }
+
+    // one input in the middle; two mixed in the middle or left and right
+    void applyRouting()
+    {
+        const auto [first, second] = activeInputs();
+        proc.inputRouting = second >= 0 ? (inputsMixed() ? ClodScopeProcessor::inputMixCentred : ClodScopeProcessor::inputStereo)
+                          : first >= 0  ? ClodScopeProcessor::inputFirstCentred
+                                        : ClodScopeProcessor::inputStereo;
+    }
+
+    void showInputPicker()
+    {
+        auto* d = device();
+        const auto [first, second] = activeInputs();
+        auto view = StandaloneBar::createInputPicker (d != nullptr ? d->getInputChannelNames() : juce::StringArray(), first, second,
+                                                      inputsMixed(), [this] (int a, int b, bool mixed) { setInputs (a, b, mixed); });
+        auto* host = popupHost (bar);
+        juce::CallOutBox::launchAsynchronously (std::move (view), host->getLocalArea (&inBtn, inBtn.getLocalBounds()), host);
+    }
+
+    void setInputs (int first, int second, bool mixed)
+    {
+        if (services == nullptr || services->deviceManager == nullptr)
+            return;
+        if (services->settings != nullptr)
+            services->settings->setValue ("clodInputMix", mixed);
+        auto& dm = *services->deviceManager;
+        auto setup = dm.getAudioDeviceSetup();
+        juce::BigInteger channels;
+        channels.setBit (first);
+        if (second >= 0)
+            channels.setBit (second);
+        if (setup.useDefaultInputChannels || setup.inputChannels != channels)
+        {
+            setup.useDefaultInputChannels = false;
+            setup.inputChannels = channels;
+            const auto err = dm.setAudioDeviceSetup (setup, true);
+            if (err.isNotEmpty())
+            {
+                message = err;
+                messageUntil = juce::Time::getMillisecondCounter() + 6000;
+            }
+        }
+        applyRouting();
+        if (services->saveAudioState)
+            services->saveAudioState();
+        refresh();
+    }
+
+    // the device or its inputs changed (also from the Audio settings)
+    void changeListenerCallback (juce::ChangeBroadcaster*) override
+    {
+        applyRouting();
         refresh();
     }
 
@@ -294,6 +460,17 @@ struct StandaloneBar::Impl : private juce::Timer,
         inputBtn.setButtonText (muted ? "Input off" : "Input on");
         inputBtn.setToggleState (! muted, juce::dontSendNotification);
 
+        const auto [first, second] = activeInputs();
+        const auto names = device() != nullptr ? device()->getInputChannelNames() : juce::StringArray();
+        auto inputName = [&names] (int i) { return juce::String (i + 1) + (names[i].isNotEmpty() ? " (" + names[i] + ")" : juce::String()); };
+        inBtn.setButtonText (first < 0   ? juce::String ("In -")
+                             : second < 0 ? "In " + juce::String (first + 1)
+                                          : "In " + juce::String (first + 1) + (inputsMixed() ? "+" : "/") + juce::String (second + 1));
+        inBtn.setTooltip (first < 0   ? juce::String ("Which inputs of your audio interface to use")
+                          : second < 0 ? "Input " + inputName (first) + ", in the middle. Click to choose other inputs."
+                                       : "Inputs " + inputName (first) + " and " + inputName (second)
+                                         + (inputsMixed() ? ", mixed in the middle" : ", left and right") + ". Click to choose.");
+
         if (! bpmBox.isBeingEdited())
             bpmBox.setText (juce::String (proc.fallbackBpm.load(), 1), juce::dontSendNotification);
         bpmBox.setEditable (! followingHost, ! followingHost, false);
@@ -346,6 +523,7 @@ struct StandaloneBar::Impl : private juce::Timer,
     void applyColours()
     {
         Theme::setAccent (inputBtn, Accent::input);
+        Theme::setAccent (inBtn, Accent::input);
         Theme::setAccent (playBtn, Accent::jam);
         Theme::setAccent (loopBtn, Accent::jam);
         Theme::setAccent (recBtn, Palette::pink);
@@ -365,6 +543,7 @@ struct StandaloneBar::Impl : private juce::Timer,
         auto take = [&r] (int w) { auto a = r.removeFromLeft (w); r.removeFromLeft (4); return a; };
         audioBtn.setBounds (take (60));
         inputBtn.setBounds (take (76));
+        inBtn.setBounds (take (62));
         r.removeFromLeft (12);
         bpmLabelArea = take (30);
         bpmBox.setBounds (take (52));
@@ -442,7 +621,7 @@ struct StandaloneBar::Impl : private juce::Timer,
     ClodScopeProcessor& proc;
     AppServices* services;
 
-    juce::TextButton audioBtn { "Audio" }, inputBtn { "Input on" }, tapBtn { "Tap" }, loadBtn { "Load" },
+    juce::TextButton audioBtn { "Audio" }, inputBtn { "Input on" }, inBtn { "In" }, tapBtn { "Tap" }, loadBtn { "Load" },
                      playBtn { "Play" }, loopBtn { "Loop" }, recBtn { "Record" }, infoBtn { "i" };
     juce::Label bpmBox;
     juce::Slider volume;
@@ -456,6 +635,12 @@ struct StandaloneBar::Impl : private juce::Timer,
 };
 
 StandaloneBar::StandaloneBar (ClodScopeProcessor& p) : impl (std::make_unique<Impl> (*this, p)) {}
+
+std::unique_ptr<juce::Component> StandaloneBar::createInputPicker (const juce::StringArray& inputNames, int first, int second,
+                                                                   bool mixed, InputChange onChange)
+{
+    return std::make_unique<InputView> (inputNames, first, second, mixed, std::move (onChange));
+}
 StandaloneBar::~StandaloneBar() = default;
 
 bool StandaloneBar::isStandaloneApp()

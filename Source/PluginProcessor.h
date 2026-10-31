@@ -64,6 +64,12 @@ public:
     jam::Port* getJamPort() noexcept { return jamPort.get(); }
     std::atomic<double> fallbackBpm { 120.0 };    // tempo when the host gives none (the standalone app sets it)
 
+    // How the interface's inputs reach the sound (the standalone app's input choice, App/StandaloneBar.cpp):
+    // as they come (stereo: first input left, second right), the first input in the middle, or the two
+    // mixed into the middle (a mic and a guitar). The plugin leaves it at stereo; the host routes there.
+    enum InputRouting { inputStereo = 0, inputFirstCentred = 1, inputMixCentred = 2 };
+    std::atomic<int> inputRouting { inputStereo };
+
     // Sees every finished block, after Jam Sesh: everything you hear (the standalone app's recorder)
     struct AudioTap
     {

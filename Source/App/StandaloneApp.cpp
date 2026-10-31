@@ -225,6 +225,48 @@ namespace
                 check (outRms > 1.0e-4, "the guitar comes out");
             }
 
+            // ---- 1b. the input choice (StandaloneBar's In button): the guitar on the first input only, and a
+            //      second source (a 330 Hz tone) on the other ----
+            {
+                auto run = [&] (int routing, bool secondSource, double& outL, double& outR)
+                {
+                    cs->inputRouting = routing;
+                    double sumL = 0.0, sumR = 0.0, phase = 0.0;
+                    long count = 0;
+                    for (int b = 0; b < (int) (sr / bs); ++b)
+                    {
+                        for (int i = 0; i < bs; ++i)
+                        {
+                            io.setSample (0, i, guitar.next());
+                            io.setSample (1, i, secondSource ? 0.2f * (float) std::sin (phase) : 0.0f);
+                            phase += juce::MathConstants<double>::twoPi * 330.0 / sr;
+                        }
+                        midi.clear();
+                        proc->processBlock (io, midi);
+                        if (b >= 10)   // once the filters have settled
+                            for (int i = 0; i < bs; ++i)
+                            {
+                                sumL += (double) io.getSample (0, i) * io.getSample (0, i);
+                                sumR += (double) io.getSample (1, i) * io.getSample (1, i);
+                                ++count;
+                            }
+                    }
+                    outL = std::sqrt (sumL / juce::jmax (1L, count));
+                    outR = std::sqrt (sumR / juce::jmax (1L, count));
+                };
+                double stereoL, stereoR, oneL, oneR, mixL, mixR;
+                run (ClodScopeProcessor::inputStereo, false, stereoL, stereoR);
+                run (ClodScopeProcessor::inputFirstCentred, false, oneL, oneR);
+                run (ClodScopeProcessor::inputMixCentred, true, mixL, mixR);
+                cs->inputRouting = ClodScopeProcessor::inputStereo;
+                line ("inputs: as they come L " + juce::String (stereoL, 4) + " R " + juce::String (stereoR, 4)
+                      + "; one in the middle L " + juce::String (oneL, 4) + " R " + juce::String (oneR, 4)
+                      + "; two mixed L " + juce::String (mixL, 4) + " R " + juce::String (mixR, 4));
+                check (stereoR < stereoL * 0.25, "as they come: the first input stays on the left (the old behaviour)");
+                check (oneL > 1.0e-4 && std::abs (oneL - oneR) < oneL * 0.05, "one input: in the middle (both sides equal)");
+                check (mixL > 1.0e-4 && std::abs (mixL - mixR) < mixL * 0.05, "two inputs mixed: in the middle (both sides equal)");
+            }
+
             // ---- 2. tempo ----
             {
                 TapTempo tapper;

@@ -253,6 +253,18 @@ void ClodScopeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     auto* l = buffer.getWritePointer (0);
     auto* r = numCh > 1 ? buffer.getWritePointer (1) : l;
+
+    // the app's input choice: a single instrument or mic in the middle, not on one side
+    const int routing = inputRouting.load (std::memory_order_relaxed);
+    if (numCh > 1 && routing == inputFirstCentred)
+    {
+        std::copy (l, l + n, r);
+    }
+    else if (numCh > 1 && routing == inputMixCentred)
+    {
+        for (int i = 0; i < n; ++i)
+            l[i] = r[i] = (l[i] + r[i]) * 0.70710678f;   // two different sources: -3 dB each keeps the level
+    }
     inputScope.push (l, r, n);
 
     dryBuffer.setSize (2, n, false, false, true);
