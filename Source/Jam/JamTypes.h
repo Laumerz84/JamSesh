@@ -70,6 +70,16 @@ namespace jam
         bool muted = false;
     };
 
+    // The shared metronome's beat grid (Jam/JamMetronome.h): beat k sounds at anchor + k * 60 / bpm on the session
+    // clock, and beats 0, n, 2n ... (n = beatsPerBar) start a bar. The host's grid reaches every player with the tempo.
+    struct BeatGrid
+    {
+        bool on = false;
+        int beatsPerBar = 4;
+        double bpm = 120.0;
+        double anchor = 0.0;    // session seconds of a bar's first beat
+    };
+
     // Session state the UI shows
     enum class Status { idle, hosting, joining, connected, failed };
 

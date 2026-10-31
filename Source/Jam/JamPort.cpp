@@ -3,6 +3,8 @@
 #include "JamCodec.h"
 #include "JamStream.h"
 #include "JamReplica.h"
+#include "JamClock.h"
+#include "JamMetronome.h"
 #include "../PluginProcessor.h"
 #include <cstring>
 
@@ -479,6 +481,25 @@ namespace jam
                 }
             }
         }
+    }
+
+    void Port::mixMetronome (juce::AudioBuffer<float>& io, int numChannels, double blockStartSeconds) noexcept
+    {
+        auto& d = *impl;
+        const int n = io.getNumSamples();
+        auto& session = *sessionRef;
+        if (numChannels < 1 || n <= 0 || ! d.prepared.load (std::memory_order_acquire) || session.playerPort() != this)
+            return;   // one click per computer: the player instance's
+
+        // the block's start on the session clock, and when its first sample leaves the speakers after that: the sound
+        // card's output latency (unknown inside a plugin host: a block + 0.75 ms, as Engine's estimates assume)
+        const double blockSession = session.network().sessionTime() - (localSeconds() - blockStartSeconds);
+        const int outSamples = owner.deviceOutputLatency.load (std::memory_order_relaxed);
+        const double outSeconds = outSamples > 0 ? outSamples / d.sampleRate : n / d.sampleRate + 0.00075;
+        float* l = io.getWritePointer (0);
+        float* r = numChannels > 1 ? io.getWritePointer (1) : l;
+        session.metronome().render (l, r, n, d.sampleRate, blockSession, outSeconds, lastBpm.load (std::memory_order_relaxed),
+                                    lastPpq.load (std::memory_order_relaxed), lastPlaying.load (std::memory_order_relaxed));
     }
 
     void Port::setRole (Role r) { impl->role = r; }

@@ -126,6 +126,7 @@ set(CLOD_SOURCES
     Source/Jam/JamStream.cpp
     Source/Jam/JamView.cpp
     Source/Jam/JamPanel.cpp
+    Source/Jam/JamMetronome.cpp
     Source/Jam/ViewState.cpp
     Source/Jam/ViewTile.cpp
     Source/App/StandaloneApp.cpp

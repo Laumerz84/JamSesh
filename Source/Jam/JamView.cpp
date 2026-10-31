@@ -1,6 +1,7 @@
 #include "JamView.h"
 #include "JamSession.h"
 #include "JamUiCommon.h"
+#include "JamMetronome.h"
 #include "ViewTile.h"
 #include "ViewState.h"
 #include "../PluginProcessor.h"
@@ -276,6 +277,8 @@ struct JamView::Impl : private juce::ChangeListener, private juce::Timer
     {
         preview = std::make_unique<PlayerTile> (p);
         view.addChildComponent (*preview);
+        beatLights.showLabel = true;   // the metronome's beat, top right of the header (paints nothing while it is off)
+        view.addAndMakeVisible (beatLights);
         session->addChangeListener (this);
         refresh();
         startTimerHz (15);
@@ -373,6 +376,7 @@ struct JamView::Impl : private juce::ChangeListener, private juce::Timer
         const int headH = juce::jlimit (84, 120, r.getHeight() / 7);
         headerArea = r.removeFromTop (headH);
         bodyArea = r.reduced (14, 6).withTrimmedBottom (6);
+        beatLights.setBounds (headerArea.getRight() - 196, headerArea.getY() + 8, 180, 18);
 
         // explainer above, the preview of your tile below it when there is room
         const int used = 4 + introHeight + (status == jam::Status::failed ? failedHeight : 0) + cardHeight + 16;
@@ -527,6 +531,7 @@ struct JamView::Impl : private juce::ChangeListener, private juce::Timer
     ProcessorFeed selfFeed;
     juce::OwnedArray<PlayerTile> tiles;
     std::unique_ptr<PlayerTile> preview;
+    jam::BeatLights beatLights;
     jam::Status status = jam::Status::idle, lastStatus = jam::Status::idle;
     juce::String headLine, statusText;
     juce::Rectangle<int> headerArea, bodyArea, previewArea;
