@@ -498,12 +498,18 @@ ReachInfo verdict (int port, juce::uint32 stunIp, juce::uint32 routerIp, juce::u
     r.routerIp = routerIp;
     r.publicIp = stunIp != 0 ? stunIp : (routerIp != 0 && ! isPrivate (routerIp) ? routerIp : 0);
     const juce::String p (port);
+   #if JUCE_MAC
+    const juce::String firewall = " macOS may ask whether Jam Sesh may find devices on your local network: allow it.";
+    const juce::String thisComputer = "this Mac";
+   #else
     const juce::String firewall = " Windows may ask whether Jam Sesh can use the network: allow it.";
+    const juce::String thisComputer = "this PC";
+   #endif
 
     if (ownAddress)
     {
         r.state = ReachState::open;
-        r.text = "Friends over the internet can join: this PC has its own internet address." + firewall;
+        r.text = "Friends over the internet can join: " + thisComputer + " has its own internet address." + firewall;
     }
     else if (routerIp != 0 && (isPrivate (routerIp) || (stunIp != 0 && routerIp != stunIp)))
     {
@@ -523,11 +529,11 @@ ReachInfo verdict (int port, juce::uint32 stunIp, juce::uint32 routerIp, juce::u
         r.state = ReachState::forwardPort;
         if (mapError == 718)   // ConflictInMappingEntry
             r.text = "Your router's UDP port " + p + " already goes to another device. Host on another port, or forward "
-                     "this one to this PC" + pc + " in your router's settings.";
+                     "this one to " + thisComputer + pc + " in your router's settings.";
         else
             r.text = juce::String (routerFound ? "Your router didn't open the port by itself."
                                                : "Your router didn't answer (its UPnP setting is off or missing).")
-                   + " To let friends in over the internet, forward UDP port " + p + " to this PC" + pc
+                   + " To let friends in over the internet, forward UDP port " + p + " to " + thisComputer + pc
                    + " in your router's settings, or use a VPN such as Tailscale. Your internet address is in the code.";
     }
     else
