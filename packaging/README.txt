@@ -1,14 +1,14 @@
 Jam Sesh {VERSION} - app and plugin for Windows (64-bit)
 =====================================================
 
-Jam Sesh lets you play together online with friends. It's the app of Clod Scope, an oscilloscope and
-sound kit for guitar, voice or any other input: it turns what you play into a synth (single notes or
-whole chords), lets you shape the wave by hand, runs it through an effects rack, and shows the sound
-as a scope, 3D views and an orbital cloud. 126 presets included.
+Jam Sesh lets you play together online with friends. It's also an oscilloscope and sound kit for
+guitar, voice or any other input: it turns what you play into a synth (single notes or whole
+chords), lets you shape the wave by hand, runs it through an effects rack, and shows the sound as a
+scope, 3D views and an orbital cloud. 126 presets included.
 
 What you get:
 - Jam Sesh.exe                   the app: no DAW needed, plug in your guitar and play
-- Clod Scope.vst3                the same sound kit as a plugin, for FL Studio and other DAWs
+- Jam Sesh.vst3                  the same as a plugin, for FL Studio and other DAWs
 - LICENSE.txt                    the licence: GNU GPL version 3 (see FREE SOFTWARE below)
 - Licenses                       the licences of the parts it's built from
 - JamSesh-{VERSION}-Source.zip   the source code
@@ -26,6 +26,10 @@ Two downloads, the same Jam Sesh:
   the plugin, see INSTALL THE PLUGIN below. To update, replace the files with the newer ones.
 
 Either way your settings, presets and recordings stay when you update.
+
+Until 1.4.0 the plugin was called Clod Scope. It is the same plugin: your projects load it as
+Jam Sesh, the installer removes the old Clod Scope.vst3, and your settings, presets and recordings
+move from the "Clod Scope" folders to "Jam Sesh" (see YOUR FILES).
 
 
 REQUIREMENTS
@@ -55,15 +59,16 @@ The bar under the top of the window:
 - In         which inputs of your interface to use, one by one (In 2 = input 2 only). One input
              sits in the middle. Two inputs (a mic and a guitar) are mixed in the middle, or kept
              left and right for one stereo source.
-- BPM / Tap  the tempo for the delays, the beat-synced effects and Jam Sesh. In a Jam Sesh a friend
+- BPM / Tap  the tempo for the delays, the beat-synced effects and Jam Sesh. In a sesh a friend
              follows the host's tempo.
 - Track      load a backing track to play along with (WAV, MP3, FLAC, OGG, AIFF), or drop the file
-             on the bar. Play / Stop, Loop and volume. In a Jam Sesh it streams to your friends.
+             on the bar. Play / Stop, Loop and volume. In a sesh it streams to your friends.
 - Record     saves what you hear (you, your friends and the track) as a WAV file in
-             Documents\Clod Scope\Recordings
+             Documents\Jam Sesh\Recordings
 - i          about the app and its licence
 
-The app remembers its window, audio settings, sound and track between runs.
+The app opens on the Jam Sesh screen, and remembers its window, audio settings, sound and track
+between runs.
 
 The first time it starts, the app picks the audio setup with the lowest delay: your interface's
 own ASIO driver at 128 samples; without one, "Windows Audio (Low Latency Mode)" at its smallest
@@ -97,22 +102,23 @@ INSTALL THE PLUGIN
 
 The installer does this for you. From the zip:
 
-1. Copy the "Clod Scope.vst3" folder into
+1. Copy the "Jam Sesh.vst3" folder into
 
        C:\Program Files\Common Files\VST3
 
-   Windows asks for administrator permission.
+   Windows asks for administrator permission. If "Clod Scope.vst3" (the plugin's name before
+   1.4.0) is there too, delete it: it is the same plugin, and your DAW would list it twice.
 
 2. Restart your DAW, or rescan plugins:
    - FL Studio: Options > Manage plugins > Find installed plugins
    - REAPER:    Options > Preferences > Plug-ins > VST > Re-scan
 
-3. Load "Clod Scope" as an effect on a mixer insert or track.
+3. Load "Jam Sesh" as an effect on a mixer insert or track.
 
 
 PLAY YOUR GUITAR OR VOICE THROUGH THE PLUGIN
 
-Put Clod Scope on a mixer insert or track whose input is your audio interface, turn on input
+Put Jam Sesh on a mixer insert or track whose input is your audio interface, turn on input
 monitoring, then click the preset name at the top of the plugin and pick a preset. For low delay,
 pick your interface's own ASIO driver in FL Studio's Options > Audio settings (not "FL Studio
 ASIO" when your interface has its own driver) and a buffer of 64-128 samples. If notes are missed, set Tracking > Range to match your instrument; to play
@@ -132,15 +138,16 @@ already are).
 
 JAM SESH: PLAY TOGETHER ONLINE
 
-Open the Jam Sesh view (top bar). One player hosts, up to five friends join. Works in the app and
-in the plugin, and app and plugin players can jam together.
+The app opens on the Jam Sesh view; in the plugin, click Jam Sesh in the top bar. One player hosts
+a sesh, up to five friends join. Works in the app and in the plugin, and app and plugin players can
+jam together.
 
 1. The host clicks Host. Jam Sesh then looks up the host's internet address (it asks a public
    STUN server, Google's or Cloudflare's; nothing else is sent) and asks the router to let friends
    in (UPnP). The line under the code says whether friends over the internet can join. When it's
-   done, copy the code and send it to the friends (chat, Discord, ...).
-2. Friends paste the code and click Join. Only the host needs an open port; friends can join from
-   anywhere.
+   done, copy the sesh code and send it to the friends (chat, Discord, ...).
+2. Friends paste the sesh code and click Join. Only the host needs an open port; friends can join
+   from anywhere.
 3. The first time, Windows Firewall asks whether Jam Sesh (or, with the plugin, your DAW) may use
    the network: allow it. If Windows has your home network set to Public, tick Public too.
 
@@ -153,9 +160,9 @@ If the line under the code says friends can't reach you:
 - Or everyone joins the same Tailscale or ZeroTier network (free, no router settings) and the host
   shares the code from there.
 
-The code holds the host's internet address: only give it to people you want in the jam.
+The sesh code holds the host's internet address: only give it to people you want in the jam.
 
-Backing track: in the app, load it on the bar. In FL Studio, put a second Clod Scope with the role
+Backing track: in the app, load it on the bar. In FL Studio, put a second Jam Sesh with the role
 "Backing track" on a mixer insert that carries ONLY the beat (beat -> that insert -> Master), never
 on the Master itself (it would send your guitar twice). With "Sync track" on, the host hears the
 track as late as it reaches the friends, so everyone hears it together.
@@ -173,8 +180,13 @@ For the lowest delay:
 
 YOUR FILES
 
-Presets you save go to     Documents\Clod Scope\Presets
-Recordings go to           Documents\Clod Scope\Recordings
+Presets you save go to     Documents\Jam Sesh\Presets
+Recordings go to           Documents\Jam Sesh\Recordings
+Settings (theme, your name for the sesh, the app's audio setup and window) are in %APPDATA%\Jam Sesh
+
+Before 1.4.0 these folders were called "Clod Scope". The first time you start the app or open the
+plugin's window, Jam Sesh renames them to "Jam Sesh" (nothing is deleted). If a file in them is in
+use, it keeps using the old folders and tries again the next time.
 
 
 UNINSTALL
@@ -183,18 +195,18 @@ Installed with the installer: Settings > Apps > Jam Sesh > Uninstall. It removes
 plugin, the shortcuts and the firewall rule.
 
 From the zip: delete the folder, and
-C:\Program Files\Common Files\VST3\Clod Scope.vst3 if you installed the plugin.
+C:\Program Files\Common Files\VST3\Jam Sesh.vst3 if you installed the plugin.
 
-Either way your settings stay in %APPDATA%\Clod Scope, and your presets and recordings in
-Documents\Clod Scope: delete those too if you want them gone.
+Either way your settings stay in %APPDATA%\Jam Sesh, and your presets and recordings in
+Documents\Jam Sesh: delete those too if you want them gone.
 
 
 FREE SOFTWARE
 
-Jam Sesh and Clod Scope: Copyright (C) 2026 Clod Codes
+Jam Sesh: Copyright (C) 2026 Clod Codes
 
-They are free software: you can share them and change them under the terms of the GNU General
-Public License version 3 (LICENSE.txt). They come with NO WARRANTY, to the extent permitted by law.
+It is free software: you can share it and change it under the terms of the GNU General Public
+License version 3 (LICENSE.txt). It comes with NO WARRANTY, to the extent permitted by law.
 
 The complete source code is in JamSesh-{VERSION}-Source.zip, with building instructions
 (BUILDING.txt inside). When you pass Jam Sesh on, pass this whole folder or zip on, source code

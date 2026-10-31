@@ -508,7 +508,7 @@ struct FxRack::Impl
     class Worker : public juce::Thread
     {
     public:
-        explicit Worker (Impl& o) : juce::Thread ("Clod Scope FX worker"), owner (o) {}
+        explicit Worker (Impl& o) : juce::Thread ("Jam Sesh FX worker"), owner (o) {}
         void run() override
         {
             while (! threadShouldExit())

@@ -6,10 +6,11 @@
 #include "JamTypes.h"
 #include "JamEngine.h"
 #include "../UI/Theme.h"
+#include "../AppPaths.h"
 
 // Shared by the Jam Sesh view and panel (owner: jam-ui soldier): the title font, the latency and
 // bandwidth estimate of a set of LatencyOptions, the latency breakdown text of a player, and the
-// settings this computer remembers for every Clod Scope (your name, the last port and code).
+// settings this computer remembers for the app and every plugin instance (your name, the last port and code).
 namespace jamui
 {
     //==========================================================================
@@ -219,7 +220,7 @@ namespace jamui
             case jam::Status::failed:    return "FAILED";
             case jam::Status::idle:      break;
         }
-        return "NOT IN A SESSION";
+        return "NOT IN A SESH";
     }
 
     inline juce::Colour statusColour (jam::Status s)
@@ -247,7 +248,8 @@ namespace jamui
     inline bool inSession (jam::Status s) { return s == jam::Status::hosting || s == jam::Status::connected || s == jam::Status::joining; }
 
     //==========================================================================
-    // Remembered for every Clod Scope on this computer: %APPDATA%\Clod Scope\Jam Sesh.settings
+    // Remembered for the app and every plugin instance on this computer: %APPDATA%\Jam Sesh\Jam Sesh.settings
+    // (AppPaths.h)
     class Settings
     {
     public:
@@ -255,13 +257,13 @@ namespace jamui
         {
             juce::PropertiesFile::Options o;
             o.applicationName = "Jam Sesh";
-            o.folderName = "Clod Scope";
             o.filenameSuffix = ".settings";
-            o.osxLibrarySubFolder = "Application Support";
             o.storageFormat = juce::PropertiesFile::storeAsXML;
             o.millisecondsBeforeSaving = 500;
-            file = std::make_unique<juce::PropertiesFile> (o);
+            file = std::make_unique<juce::PropertiesFile> (location(), o);
         }
+
+        static juce::File location()            { return apppaths::settings().getChildFile ("Jam Sesh.settings"); }
 
         juce::String name() const
         {

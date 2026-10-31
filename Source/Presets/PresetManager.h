@@ -15,8 +15,8 @@ class ClodScopeProcessor;
 //
 // Everything except the CONTRACT program calls is message-thread only.
 //
-// Files: user presets are XML files (*.clodpreset) in Documents/Clod Scope/Presets; favourites and
-// browser options live in Documents/Clod Scope/PresetSettings.xml. The current preset's name,
+// Files: user presets are XML files (*.clodpreset) in Documents/Jam Sesh/Presets; favourites and
+// browser options live in Documents/Jam Sesh/PresetSettings.xml (AppPaths.h). The current preset's name,
 // category, key and modified flag are stored in the APVTS state (properties presetName,
 // presetCategory, presetFile, presetModified) so they come back with a project.
 class PresetManager

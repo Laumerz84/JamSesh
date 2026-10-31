@@ -1,7 +1,7 @@
 #include "TrackPlayer.h"
 
 // Threads: the message thread loads / plays / stops (under readerLock, shared with the reader thread
-// only); the reader thread ("Clod Scope track") reads the file, resamples it to the device rate and
+// only); the reader thread ("Jam Sesh track") reads the file, resamples it to the device rate and
 // pushes it into an SPSC FIFO; the audio thread pops. A flush (new file, rewind) is a handshake: the
 // message thread bumps flushGen, the reader stops writing, the audio thread empties the FIFO and acks.
 struct TrackPlayer::Impl : public juce::TimeSliceClient
@@ -117,7 +117,7 @@ struct TrackPlayer::Impl : public juce::TimeSliceClient
         ++flushGen;
     }
 
-    juce::TimeSliceThread thread { "Clod Scope track" };
+    juce::TimeSliceThread thread { "Jam Sesh track" };
     juce::AudioFormatManager formats;
 
     juce::CriticalSection readerLock;                 // message thread <-> reader thread, never the audio thread

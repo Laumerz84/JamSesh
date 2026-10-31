@@ -24,6 +24,7 @@
 #include "UI/Themes.h"
 #include "UI/Editor/ThemePicker.h"
 #include "App/StandaloneBar.h"
+#include "AppPaths.h"
 
 // Scrolling host for one ControlPanel: keeps the panel as wide as the viewport and as tall as it asks.
 class PanelViewport : public juce::Viewport
@@ -112,6 +113,8 @@ private:
     float param (const char* id) const;
     bool isOn (const char* id) const { return param (id) > 0.5f; }
 
+    // first: opening the window moves the old "Clod Scope" data folders (AppPaths.h) before any part reads them
+    const bool dataFoldersMoved = apppaths::allowMoves();
     ScopeLookAndFeel lnf;
     ClodScopeProcessor& proc;
 
@@ -149,8 +152,10 @@ private:
     PresetBrowser presetBrowser;            // full-window overlay with its own backdrop
 
     static constexpr int numViews = 5;      // 2D Scope, 3D Views, Orbital, Wave Sculptor, Jam Sesh
+    static constexpr int jamViewId = 4;     // Jam Sesh in the "mainView" choices
     juce::Component viewSwitch;
-    juce::TextButton viewButtons[numViews];
+    juce::TextButton viewButtons[numViews]; // by view
+    int viewOrder[numViews] { 0, 1, 2, 3, 4 };   // the views left to right (the app: Jam Sesh first)
     std::unique_ptr<widgets_detail::HoverReporter> viewSwitchHover;
     juce::TextButton guideButton { "?" };
     ThemePicker themePicker;

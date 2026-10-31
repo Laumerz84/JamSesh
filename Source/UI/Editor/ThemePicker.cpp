@@ -81,7 +81,7 @@ namespace
 
 ThemePicker::ThemePicker()
 {
-    setTooltip ("Theme: colours and style of the whole plugin (shared by every Clod Scope)");
+    setTooltip ("Theme: colours and style of the whole plugin (shared by the app and every plugin instance)");
     setMouseCursor (juce::MouseCursor::PointingHandCursor);
 }
 

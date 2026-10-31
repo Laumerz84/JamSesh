@@ -5,7 +5,7 @@
 
 // UI themes: whole palettes (Palette:: and Accent:: in UI/Theme.h) and style changes (the material
 // everything is made of - UI/Surface.h -, corners, knob style, fonts, backdrop). The choice is global: every instance and the standalone app share it, and
-// it is remembered in %APPDATA%\Clod Scope\Theme.settings (another process's change is picked up
+// it is remembered in %APPDATA%\Jam Sesh\Theme.settings (AppPaths.h; another process's change is picked up
 // within ~2 s while an editor is open). The env var CLOD_THEME=<index or name> forces a theme without
 // saving it (headless snapshots). Owner: themes soldier.
 namespace Themes

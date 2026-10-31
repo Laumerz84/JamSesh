@@ -1,4 +1,5 @@
 #include "Themes.h"
+#include "../AppPaths.h"
 
 // The theme table, switching, follow() for stale colours, the tree refresh and the shared setting.
 namespace Themes
@@ -194,8 +195,7 @@ namespace Themes
 
         juce::File settingsFile()
         {
-            return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                       .getChildFile ("Clod Scope").getChildFile ("Theme.settings");
+            return apppaths::settings().getChildFile ("Theme.settings");
         }
 
         int indexOf (const juce::String& s)

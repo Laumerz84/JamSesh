@@ -230,7 +230,7 @@ namespace
         const Step steps[] = {
             { "HOST OR JOIN", "Open the Jam Sesh page on the right. One player presses Host. Everyone else pastes "
                               "the host's code and presses Join. Pick your name first: friends see it on your tile." },
-            { "SHARE THE CODE", "The host presses Copy next to the session code and sends it by chat. The code holds "
+            { "SHARE THE CODE", "The host presses Copy next to the sesh code and sends it by chat. The code holds "
                                 "the host's address and port, nothing else." },
             { "ROUTER OR VPN", "Same house: nothing to do. Over the internet the host forwards UDP port 47800 on the "
                                "router to their PC, or everyone joins one Tailscale / ZeroTier network and the host "
@@ -349,7 +349,7 @@ struct JamView::Impl : private juce::ChangeListener, private juce::Timer
         }
         else
         {
-            line = status == jam::Status::failed ? juce::String ("COULD NOT START THE SESSION") : juce::String ("PLAY TOGETHER, LIVE");
+            line = status == jam::Status::failed ? juce::String ("COULD NOT START THE SESH") : juce::String ("PLAY TOGETHER, LIVE");
         }
 
         const bool headChanged = line != headLine || text != statusText;

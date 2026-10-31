@@ -4,6 +4,7 @@
 #include "PresetManager.h"
 #include "../UI/Theme.h"
 #include "../UI/Surface.h"
+#include "../AppPaths.h"
 
 // Self-drawn building blocks for the preset bar, browser and dialogs. Header-only, used by
 // PresetUI.cpp only. Everything paints itself so it looks the same under any LookAndFeel.
@@ -829,7 +830,7 @@ namespace presetui
                 }
                 else
                 {
-                    status = "Renames the preset file in Documents/Clod Scope/Presets.";
+                    status = "Renames the preset file in " + apppaths::shown (apppaths::documents().getChildFile ("Presets")) + ".";
                 }
             }
             else if (exists)
@@ -840,7 +841,7 @@ namespace presetui
             }
             else
             {
-                status = "Saved to Documents/Clod Scope/Presets as a user preset.";
+                status = "Saved to " + apppaths::shown (apppaths::documents().getChildFile ("Presets")) + " as a user preset.";
             }
             repaint();
         }

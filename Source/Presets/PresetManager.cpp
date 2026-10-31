@@ -1,5 +1,6 @@
 #include "PresetManager.h"
 #include "../PluginProcessor.h"
+#include "../AppPaths.h"
 #include <algorithm>
 #include <map>
 
@@ -137,11 +138,10 @@ struct PresetManager::Impl : public juce::AudioProcessorValueTreeState::Listener
     void notifyListChanged() { listeners.call ([] (PresetManager::Listener& l) { l.presetListChanged(); }); }
 
     //==============================================================================
-    // Documents/Clod Scope/Presets; only created when something is written there
+    // Documents/Jam Sesh/Presets (AppPaths.h); only created when something is written there
     juce::File folder (bool create = false) const
     {
-        auto f = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                     .getChildFile ("Clod Scope").getChildFile ("Presets");
+        auto f = apppaths::documents().getChildFile ("Presets");
         if (create && ! f.isDirectory())
             f.createDirectory();
         return f;
@@ -218,7 +218,7 @@ struct PresetManager::Impl : public juce::AudioProcessorValueTreeState::Listener
             e.category = f.category;
             e.description = f.description;
             e.genres = f.genres;
-            e.author = "Clod Scope";
+            e.author = "Jam Sesh";
             e.factory = true;
             e.factoryIndex = i;
             list.push_back (e);
@@ -942,6 +942,7 @@ HelpList PresetManager::helpEntries()
         "equation incl. its custom formula, FX rack, double slit, mix, output) to its default and then "
         "applies the preset's values, so a preset always sounds the same whatever was loaded before. "
         "View settings (scope, 3D, orbital display, zoom) are never changed.";
+    const auto docs = apppaths::documents();
 
     return {
         { "preset.name", "Preset",
@@ -961,13 +962,14 @@ HelpList PresetManager::helpEntries()
           {} },
         { "preset.fav", "Favourite",
           "Marks the current preset as a favourite (filled star) or removes it.",
-          "Favourites appear under \"Favourites\" in the browser. Stored in Documents/Clod Scope/"
-          "PresetSettings.xml, shared by every instance of the plugin.",
+          "Favourites appear under \"Favourites\" in the browser. Stored in "
+          + apppaths::shown (docs.getChildFile ("PresetSettings.xml")) + ", shared by every instance of the plugin.",
           {} },
         { "preset.save", "Save preset",
           "Saves the current sound as a user preset.",
           "Stores every sound control as a real value, both wave sculptor tables and the custom formula, "
-          "plus name, category, genre tags and description, in Documents/Clod Scope/Presets/<name>.clodpreset.",
+          "plus name, category, genre tags and description, in "
+          + apppaths::shown (docs.getChildFile ("Presets").getChildFile ("<name>.clodpreset")) + ".",
           "Saving under the name of an existing user preset asks before overwriting it." },
         { "preset.menu", "Preset menu",
           "Save As, Rename, Delete, Revert, Init and the presets folder.",

@@ -319,8 +319,8 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
 
         // ---- notes (painted, wrapped) ----
         notes.resize (numNotes);
-        notes[roleNote].text = "Player: this Clod Scope sends your sound and plays your friends to you. Backing track: it sends "
-                               "what passes through it as the session's backing track. In FL Studio put a second Clod Scope on "
+        notes[roleNote].text = "Player: this plugin sends your sound and plays your friends to you. Backing track: it sends "
+                               "what passes through it as the sesh's backing track. In FL Studio put a second Jam Sesh on "
                                "a mixer insert that carries ONLY the beat (beat -> that insert -> Master), never on the Master "
                                "itself: there it would also send your guitar twice. The standalone app has its own track player.";
         notes[sendNote].text = "Finished sound: friends hear exactly what you hear (stereo). Raw input + settings: half the "
@@ -795,7 +795,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         {
             g.setColour (Palette::dim);
             g.setFont (Theme::font (11.5f));
-            g.drawText ("Nobody here yet. Host or join a session above.", emptyPlayersRect, juce::Justification::centredLeft);
+            g.drawText ("Nobody here yet. Host or join a sesh above.", emptyPlayersRect, juce::Justification::centredLeft);
         }
 
         // live estimate
@@ -899,36 +899,37 @@ HelpList JamPanel::helpEntries()
     return {
         { "jam.name", "Your name",
           "The name your friends see on your tile and in their player list.",
-          "Sent to everyone when you host or join (up to 24 characters). Remembered for every Clod Scope on this computer "
-          "in %APPDATA%\\Clod Scope\\Jam Sesh.settings. Changing it during a session takes effect the next time you join.",
+          "Sent to everyone when you host or join (up to 24 characters). Remembered on this computer for the app and every "
+          "plugin instance, in " + apppaths::shown (jamui::Settings::location()) + ". Changing it during a sesh takes effect "
+          "the next time you join.",
           "Empty uses your Windows user name." },
         { "jam.port", "Host port",
           "The UDP port your computer listens on when you host.",
-          "Any port from 1024 to 65535; default " + port + ". Friends never type it: it is part of the session code. "
+          "Any port from 1024 to 65535; default " + port + ". Friends never type it: it is part of the sesh code. "
           "Over the internet the host's router must forward this exact UDP port: Jam Sesh asks the router to (UPnP) "
           "and says under the code whether it worked.",
           "Change it only if another program already uses " + port + "." },
         { hostHelp, "Host",
-          "Starts a session on this computer; friends join you with your code.",
-          "Opens UDP on the port to the left, makes you player 1 (the host: you set the session tempo and coordinate "
-          "everyone) and shows the session code above. Up to 6 players in total, you included.",
+          "Starts a sesh on this computer; friends join you with your code.",
+          "Opens UDP on the port to the left, makes you player 1 (the host: you set the sesh tempo and coordinate "
+          "everyone) and shows the sesh code above. Up to 6 players in total, you included.",
           "The host needs the best upload: every player sends to every other player directly." },
-        { "jam.code", "Session code",
+        { "jam.code", "Sesh code",
           "What a friend types to join: the host's addresses and port, packed into one line.",
           "Paste the code the host sent you. It holds the host's home network and internet addresses, the port and "
-          "a random session key, no password or other personal data. The last code you used is remembered.",
+          "a random sesh key, no password or other personal data. The last code you used is remembered.",
           "Only give it to people you want in the jam. With a VPN (Tailscale / ZeroTier) it also holds the VPN address." },
         { joinHelp, "Join",
-          "Joins the session whose code is in the box.",
+          "Joins the sesh whose code is in the box.",
           "Contacts the host at the address in the code, gets the list of players and connects to each of them "
           "directly (peer-to-peer audio). Status shows JOINING until the host answers, then CONNECTED, or FAILED with the reason.",
           "Fails if the host's router doesn't let friends in (the host's page says) and you are not on the same network or VPN." },
         { "jam.leave", "Leave",
-          "Leaves the session (as host: ends it for everyone).",
+          "Leaves the sesh (as host: ends it for everyone).",
           "Stops sending and receiving at once; friends' tiles disappear and their sound stops.",
           {} },
         { "jam.copy", "Copy code",
-          "Copies the session code to the clipboard.",
+          "Copies the sesh code to the clipboard.",
           "Copies the exact text shown next to CODE, to paste into a chat.",
           {} },
         { "jam.volume", "Player volume",
@@ -947,9 +948,9 @@ HelpList JamPanel::helpEntries()
           "sound card is estimated). Green under 20 ms (feels like one room), amber under 40 ms, pink above.",
           "Above ~40 ms tight playing gets hard: try smaller packets, compression off, a smaller sound-card buffer or one-bar mode." },
         { "jam.role", "This plugin's role",
-          "Whether this Clod Scope is your player or the session's backing track.",
+          "Whether this plugin is your player or the sesh's backing track.",
           "Player: sends your sound (or raw input) and plays your friends into its output. Backing track: sends what passes "
-          "through it as the backing track and mixes nothing in. In FL Studio put a second Clod Scope on a mixer insert "
+          "through it as the backing track and mixes nothing in. In FL Studio put a second Jam Sesh on a mixer insert "
           "that carries only the beat (beat -> that insert -> Master) and set it to Backing track; not on the Master, where it "
           "would also send your own guitar. The standalone app has its own track player.",
           "One player instance per computer; the first instance set to Player is used." },
@@ -958,12 +959,12 @@ HelpList JamPanel::helpEntries()
           "Follow: the view you have open; while you're on the Jam Sesh page, the one you had open last. 2D scope, 3D, "
           "Orbital or Sculptor: always that view, with your own settings for it (the 3D mode, the orbital look ...). "
           "Friends' computers draw it from your sound and settings, so it costs them a little graphics work.",
-          "Remembered with your session; presets don't change it." },
+          "Remembered with your project (and by the app); presets don't change it." },
         { "jam.sendMode", "What you send",
           "Your finished sound, or your dry input plus your settings.",
           "Finished sound: stereo, exactly what you hear (2 x 0.77 Mbit/s uncompressed). Raw input + settings: your dry input "
           "(mono for a mono guitar, 0.77 Mbit/s) plus your settings; every friend rebuilds your sound with a hidden copy of "
-          "Clod Scope, so it costs them CPU and they hear your settings changes about half a second late.",
+          "Jam Sesh, so it costs them CPU and they hear your settings changes about half a second late.",
           "Raw input halves your upload, which lets uncompressed audio reach more friends." },
         { "jam.compression", "Compression (Opus)",
           "Compresses your audio with Opus instead of sending raw 16-bit samples.",
@@ -1007,7 +1008,7 @@ HelpList JamPanel::helpEntries()
           "Only matters on the computer that plays the backing track." },
         { "jam.oneBar", "One-bar mode",
           "For far-away friends: everyone hears everyone exactly one bar late, in time.",
-          "Each friend's audio is delayed to exactly one bar (4 beats at the session tempo: 2000 ms at 120 BPM) after it "
+          "Each friend's audio is delayed to exactly one bar (4 beats at the sesh tempo: 2000 ms at 120 BPM) after it "
           "was played, so it lands on the beat of the next bar. Needs a steady tempo (the host's).",
           "Works for loops and jams over a repeating progression; not for call-and-response." },
         { "jam.estimate", "Latency estimate",

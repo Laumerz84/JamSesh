@@ -5,7 +5,7 @@
 #include <memory>
 
 // Records what the standalone app plays (you, your friends and the backing track) to a WAV file in
-// Documents\Clod Scope\Recordings, written from a background thread. It is the processor's outputTap:
+// Documents\Jam Sesh\Recordings, written from a background thread. It is the processor's outputTap:
 // the audio thread only pushes into AudioFormatWriter::ThreadedWriter's FIFO. Owner: standalone soldier.
 class Recorder : public ClodScopeProcessor::AudioTap
 {
@@ -24,7 +24,7 @@ public:
     juce::File getFile() const;                        // the current or last recording
     int getDroppedBlocks() const noexcept;             // the disk couldn't keep up
 
-    static juce::File recordingsFolder();              // Documents\Clod Scope\Recordings
+    static juce::File recordingsFolder();              // Documents\Jam Sesh\Recordings (AppPaths.h)
     static juce::File newRecordingFile();              // "Jam Sesh 2026-10-30 21-05-33.wav" in that folder
 
 private:

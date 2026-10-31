@@ -152,7 +152,7 @@ struct PresetBar::Impl : public PresetManager::Listener
 
     void loadFromFile()
     {
-        chooser = std::make_unique<juce::FileChooser> ("Load a Clod Scope preset", manager.getPresetsFolder(), "*.clodpreset");
+        chooser = std::make_unique<juce::FileChooser> ("Load a Jam Sesh preset", manager.getPresetsFolder(), "*.clodpreset");
         chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                               [this] (const juce::FileChooser& fc)
                               {
