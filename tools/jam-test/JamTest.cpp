@@ -10,6 +10,8 @@
 //
 //   ClodJamTest <outDir> [--quick] [case ...]        run cases (default: all), summary in <outDir>\summary.txt
 //      cases: local connect2 connect4 latency quality jitter drift raw rawmidi track onebar cpu
+//   ClodJamTest --reach [--live]   jam::Reach against a fake router and STUN server (ReachTest.cpp); --live also
+//                                  asks the real ones, read only
 //   ClodJamTest --player host|join --out <file> [options]   one player (spawned by the above, or by ClodScopeSnap)
 //      --port N  --code C  --name S  --expect N (players incl. self)  --seconds S (after everyone is in)
 //      --signal silence|sine:HZ:AMP|clicks:PERIOD_MS|guitar   --ppm P   --block N
@@ -1476,6 +1478,8 @@ namespace
     }
 }
 
+int runReachTests (bool live);   // ReachTest.cpp
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -1488,6 +1492,9 @@ int main (int argc, char** argv)
         const int i = args.indexOf (key);
         return i >= 0 && i + 1 < args.size() ? args[i + 1] : def;
     };
+
+    if (args.contains ("--reach"))
+        return runReachTests (args.contains ("--live"));
 
     if (args.contains ("--player"))
     {

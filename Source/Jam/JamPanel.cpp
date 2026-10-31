@@ -333,9 +333,12 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
                                "beat. Off: the host hears it at once and is ahead of everyone.";
         notes[oneBarNote].text = "For far-away friends: everyone hears everyone exactly one bar late, in time with the beat, "
                                  "instead of a little late and out of time. Needs a steady tempo.";
-        notes[routerNote].text = "Over the internet the host's router must let friends in: forward UDP port " + juce::String (jam::defaultPort)
-                               + " (or the port you host on) to the host's PC in the router's settings, and allow Clod Scope "
-                                 "in the Windows firewall when it asks.\nNo access to the router? Everyone installs a VPN such as "
+        notes[routerNote].text = "Over the internet the host's router must let friends in. When you host, Jam Sesh puts your "
+                                 "internet address in the code (it asks a public STUN server, Google's or Cloudflare's, for it) "
+                                 "and asks your router to forward UDP port " + juce::String (jam::defaultPort)
+                               + " (or the port you host on) to this PC (UPnP); the line under the code says whether it worked. "
+                                 "If not, forward the port in the router's settings, or let a friend host. Allow Jam Sesh (or "
+                                 "your DAW) in the Windows firewall when it asks.\nNo luck? Everyone installs a VPN such as "
                                  "Tailscale or ZeroTier and joins the same network; the host then shares a code with the VPN "
                                  "address. Same house or same Wi-Fi: nothing to set up.";
 
@@ -463,6 +466,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         const bool in = jamui::inSession (st);
         auto line = s.statusText();
         const auto c = s.sessionCode();
+        const auto reachNow = s.reachInfo();
 
         hostBtn.setEnabled (! in);
         joinBtn.setEnabled (! in);
@@ -497,11 +501,13 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
             rows[(int) i]->update (players[i]);
         friends = juce::jmax (0, (int) players.size() - 1);
 
-        const bool textChanged = st != status || line != statusLine || c != code || error != shownError;
+        const bool textChanged = st != status || line != statusLine || c != code || error != shownError
+                              || reachNow.state != reach.state || reachNow.text != reach.text;
         status = st;
         statusLine = line;
         code = c;
         shownError = error;
+        reach = reachNow;
         updateEstimate();
         if (rebuild || textChanged)
             relayout();
@@ -581,10 +587,20 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
                 errorRect = {};
             }
 
-            // the code and Copy
+            // the code and Copy, then whether friends over the internet can reach the host
             if (apply) codeRect = { pad, y, inner - 76, 30 };
             place (&copyBtn, { pad + inner - 70, y + 3, 70, 24 });
             y += 36;
+            if (reach.text.isNotEmpty())
+            {
+                const int h = noteHeight (reach.text, inner - 12) + 6;
+                if (apply) reachRect = { pad, y, inner, h };
+                y += h + 6;
+            }
+            else if (apply)
+            {
+                reachRect = {};
+            }
 
             label (apply ? nameLabel : scratch);
             place (&nameEd, { pad, y, inner, 26 });
@@ -737,6 +753,16 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
                                          : Theme::font (11.0f));
             g.drawFittedText (code.isNotEmpty() ? code : juce::String ("Host or join to get a code"), r, juce::Justification::centredLeft, 1, 0.6f);
         }
+        if (! reachRect.isEmpty())
+        {
+            const auto c = reach.state == jam::ReachState::open        ? Palette::green
+                         : reach.state == jam::ReachState::checking    ? Palette::blue
+                         : reach.state == jam::ReachState::shared      ? Palette::pink
+                                                                       : Palette::amber;
+            g.setColour (c.withAlpha (0.12f));
+            g.fillRoundedRectangle (reachRect.toFloat(), 5.0f);
+            makeLayout (reach.text, c, reachRect.getWidth() - 12).draw (g, reachRect.reduced (6, 3).toFloat());
+        }
 
         g.setColour (Palette::dim);
         g.setFont (Theme::font (11.0f, true));
@@ -804,6 +830,8 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
 
     jam::Status status = jam::Status::idle;
     juce::String statusLine, code, error, shownError, estDelay, estUpload, estParts;
+    jam::ReachInfo reach;
+    juce::Rectangle<int> reachRect;
     int friends = 0;
     bool syncing = false;
     juce::uint32 copiedUntil = 0;
@@ -858,7 +886,8 @@ HelpList JamPanel::helpEntries()
         { "jam.port", "Host port",
           "The UDP port your computer listens on when you host.",
           "Any port from 1024 to 65535; default " + port + ". Friends never type it: it is part of the session code. "
-          "Over the internet this exact UDP port must be forwarded on the host's router.",
+          "Over the internet the host's router must forward this exact UDP port: Jam Sesh asks the router to (UPnP) "
+          "and says under the code whether it worked.",
           "Change it only if another program already uses " + port + "." },
         { hostHelp, "Host",
           "Starts a session on this computer; friends join you with your code.",
@@ -866,15 +895,15 @@ HelpList JamPanel::helpEntries()
           "everyone) and shows the session code above. Up to 6 players in total, you included.",
           "The host needs the best upload: every player sends to every other player directly." },
         { "jam.code", "Session code",
-          "What a friend types to join: the host's address and port, packed into one line.",
-          "Paste the code the host sent you. It only holds the address and port, no password or personal data. "
-          "The last code you used is remembered.",
-          "With a VPN (Tailscale / ZeroTier) the host's code holds the VPN address." },
+          "What a friend types to join: the host's addresses and port, packed into one line.",
+          "Paste the code the host sent you. It holds the host's home network and internet addresses, the port and "
+          "a random session key, no password or other personal data. The last code you used is remembered.",
+          "Only give it to people you want in the jam. With a VPN (Tailscale / ZeroTier) it also holds the VPN address." },
         { joinHelp, "Join",
           "Joins the session whose code is in the box.",
           "Contacts the host at the address in the code, gets the list of players and connects to each of them "
           "directly (peer-to-peer audio). Status shows JOINING until the host answers, then CONNECTED, or FAILED with the reason.",
-          "Fails if the host's router does not forward the port and you are not on the same network or VPN." },
+          "Fails if the host's router doesn't let friends in (the host's page says) and you are not on the same network or VPN." },
         { "jam.leave", "Leave",
           "Leaves the session (as host: ends it for everyone).",
           "Stops sending and receiving at once; friends' tiles disappear and their sound stops.",

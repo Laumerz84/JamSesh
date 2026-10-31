@@ -185,6 +185,27 @@ struct Network::Impl : private juce::Thread
     CodeInfo code;                    // host: its own addresses; joiner: the code it joined with
     int boundPort = -1;
     Endpoint hostEp;
+    juce::String lastJoinName;        // host: the last player let in, to spot the same join arriving twice
+    Endpoint lastJoinEp;
+    double lastJoinAt = -10.0;
+
+    // host: the internet address and the router's port (own thread; started and stopped without the lock)
+    Reach internetReach { reachConfig() };
+
+    // test hook: CLOD_JAM_REACH="stun=HOST:PORT,router=URL" points jam::Reach at a fake STUN server and a
+    // fake router (tools/jam-test --reach); jam::Reach then runs even with CLOD_JAM_BIND
+    static Reach::Config reachConfig()
+    {
+        Reach::Config c;
+        for (auto& part : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("CLOD_JAM_REACH", {}), ",", ""))
+        {
+            const auto k = part.upToFirstOccurrenceOf ("=", false, false).trim();
+            const auto v = part.fromFirstOccurrenceOf ("=", false, false).trim();
+            if (k == "stun")   c.stunServers = juce::StringArray (v);
+            if (k == "router") c.routerDescription = v;
+        }
+        return c;
+    }
     double joinStarted = 0, lastJoinSend = 0;
     PeerId nextId = 2;
     juce::uint32 listVersion = 0, blobCounter = 0, paramBatch = 0;
@@ -621,6 +642,11 @@ struct Network::Impl : private juce::Thread
                 return;
             }
 
+        // the same request coming in a second way (a player in the host's home also reaches the internet
+        // address, and the router loops it back from another port): the first copy is already in
+        if (who == lastJoinName && now - lastJoinAt < 1.0 && src != lastJoinEp)
+            return;
+
         if ((int) peers.size() + 1 >= maxPlayers)
         {
             Out o;
@@ -646,6 +672,9 @@ struct Network::Impl : private juce::Thread
         }
         sendWelcome (p);
         broadcastPeerList (now);
+        lastJoinName = who;
+        lastJoinEp = src;
+        lastJoinAt = now;
     }
 
     void onWelcome (Reader& r, const Endpoint& src, double now)
@@ -851,7 +880,8 @@ struct Network::Impl : private juce::Thread
                 for (auto ip : code.addresses)
                     tried.add (Endpoint { ip, code.port }.toString());
                 error = "No answer from " + tried.joinIntoString (", ")
-                      + ". Is the host's port forwarded, or are you both on the same VPN?";
+                      + ". The host's Jam Sesh page says whether friends over the internet can reach them; if not, "
+                        "they forward the port, someone else hosts, or you both join the same VPN.";
                 st = Status::failed;
                 changed();
             }
@@ -1073,8 +1103,20 @@ struct Network::Impl : private juce::Thread
         return true;
     }
 
+    // jam::Reach found something (its own thread): the internet address joins the code, the UI updates
+    void reachChanged()
+    {
+        const auto r = internetReach.info();
+        const juce::ScopedLock sl (lock);
+        if (st == Status::hosting && r.publicIp != 0 && ! code.addresses.contains (r.publicIp))
+            code.addresses.add (r.publicIp);
+        changed();
+    }
+
     void close (bool sayBye)
     {
+        internetReach.stop();   // removes the router's port mapping; never under the lock (its callback takes it)
+
         if (socket != nullptr && sayBye && self.load() != noPeer)
         {
             const juce::ScopedLock sl (lock);
@@ -1113,6 +1155,8 @@ struct Network::Impl : private juce::Thread
         simQueue.clear();
         hostEp = {};
         code = {};
+        lastJoinName.clear();
+        lastJoinAt = -10.0;
         boundPort = -1;
         nextId = 2;
         listVersion = 0;
@@ -1211,26 +1255,33 @@ bool Network::startHost (const juce::String& playerName, int port, juce::String&
     if (! m.open (port > 0 ? port : defaultPort, true, error))
         return false;
 
-    const juce::ScopedLock sl (m.lock);
-    juce::uint64 k = 0;
-    while (k == 0)
-        k = ((juce::uint64) (juce::uint32) juce::Random::getSystemRandom().nextInt() << 32)
-          ^ (juce::uint64) (juce::uint32) juce::Random::getSystemRandom().nextInt()
-          ^ (juce::uint64) juce::Time::getHighResolutionTicks();
-    m.key.store (k);
-    m.self.store (hostPeer);
-    m.hosting.store (true);
-    m.name = playerName.trim().substring (0, 40);
-    if (m.name.isEmpty())
-        m.name = "Host";
-    m.colour = juce::Colour (playerColours[0]);
-    m.code.addresses = Impl::codeAddresses();
-    m.code.port = m.boundPort;
-    m.code.key = k;
-    m.error.clear();
-    m.st = Status::hosting;
-    m.changed();
-    m.start();
+    {
+        const juce::ScopedLock sl (m.lock);
+        juce::uint64 k = 0;
+        while (k == 0)
+            k = ((juce::uint64) (juce::uint32) juce::Random::getSystemRandom().nextInt() << 32)
+              ^ (juce::uint64) (juce::uint32) juce::Random::getSystemRandom().nextInt()
+              ^ (juce::uint64) juce::Time::getHighResolutionTicks();
+        m.key.store (k);
+        m.self.store (hostPeer);
+        m.hosting.store (true);
+        m.name = playerName.trim().substring (0, 40);
+        if (m.name.isEmpty())
+            m.name = "Host";
+        m.colour = juce::Colour (playerColours[0]);
+        m.code.addresses = Impl::codeAddresses();
+        m.code.port = m.boundPort;
+        m.code.key = k;
+        m.error.clear();
+        m.st = Status::hosting;
+        m.changed();
+        m.start();
+    }
+
+    // friends over the internet: the internet address for the code, and the router's port (tests stay local)
+    if (juce::SystemStats::getEnvironmentVariable ("CLOD_JAM_BIND", {}).trim().isEmpty()
+         || juce::SystemStats::getEnvironmentVariable ("CLOD_JAM_REACH", {}).isNotEmpty())
+        m.internetReach.start (m.boundPort, [&m] { m.reachChanged(); });
     return true;
 }
 
@@ -1320,6 +1371,8 @@ juce::String Network::plainCode() const
     return ips.joinIntoString (",") + ":" + juce::String (impl->code.port) + "#"
          + juce::String::toHexString ((juce::int64) impl->code.key).paddedLeft ('0', 16);
 }
+
+ReachInfo Network::reachInfo() const { return impl->internetReach.info(); }
 
 bool Network::isHost() const { return impl->hosting.load(); }
 PeerId Network::selfId() const { return impl->self.load(); }

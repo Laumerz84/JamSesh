@@ -1,6 +1,7 @@
 # The round's end-to-end check in one command: builds ClodJamTest and ClodScopeSnap in build-test (below-normal
 # priority, via agent-build.ps1), runs every Jam Sesh case (hidden child processes, 127.0.0.1 only) and every
-# snapshot mode (off-screen, no window), and writes <OutDir>\summary.txt.
+# snapshot mode (off-screen, no window), the internet-reach checks (ClodJamTest --reach, a fake router), and
+# writes <OutDir>\summary.txt.
 #   powershell -ExecutionPolicy Bypass -File "G:\clod codes\fl-scope-plugin\tools\jam-test\run-all.ps1" [-OutDir <dir>] [-Quick] [-Cases "connect2 latency"] [-NoBuild]
 # -Quick shortens the long cases (drift 40 s instead of 3 min); the full run takes about 12 minutes.
 param(
@@ -59,6 +60,15 @@ if (Test-Path $jamExe) {
     if (Test-Path $js) { Get-Content $js | ForEach-Object { $lines.Add($_) } } else { $lines.Add("no jam summary written") }
 } else {
     $lines.Add("ClodJamTest not built: $jamExe")
+}
+
+# ---- reaching a host over the internet (jam::Reach against a fake router and STUN server, 127.0.0.1) ----
+if (Test-Path $jamExe) {
+    $reachLog = Join-Path $OutDir "reach.txt"
+    $code = Run-Hidden $jamExe @("--reach") $reachLog
+    $lines.Add("")
+    $lines.Add("== Internet reach (ClodJamTest --reach, exit $code; details in $reachLog) ==")
+    Get-Content $reachLog | Where-Object { $_ -match '^(FAIL|REACH:)' } | ForEach-Object { $lines.Add($_) }
 }
 
 # ---- snapshots ----

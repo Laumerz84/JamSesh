@@ -86,16 +86,25 @@ JAM SESH: PLAY TOGETHER ONLINE
 Open the Jam Sesh view (top bar). One player hosts, up to five friends join. Works in the app and
 in the plugin, and app and plugin players can jam together.
 
-1. The host clicks Host and sends the session code to the friends (chat, Discord, ...).
-2. Friends paste the code and click Join.
+1. The host clicks Host. Jam Sesh then looks up the host's internet address (it asks a public
+   STUN server, Google's or Cloudflare's; nothing else is sent) and asks the router to let friends
+   in (UPnP). The line under the code says whether friends over the internet can join. When it's
+   done, copy the code and send it to the friends (chat, Discord, ...).
+2. Friends paste the code and click Join. Only the host needs an open port; friends can join from
+   anywhere.
 3. The first time, Windows Firewall asks whether Jam Sesh (or, with the plugin, your DAW) may use
-   the network: allow it on private networks.
+   the network: allow it. If Windows has your home network set to Public, tick Public too.
 
-So that friends can reach the host, either
-- the host forwards UDP port 47800 on their router to their PC (router settings: "port
-  forwarding"), or
-- everyone joins the same Tailscale or ZeroTier network (free, no router settings) and the host
+If the line under the code says friends can't reach you:
+- "forward UDP port ...": the router didn't open the port by itself. Turn on UPnP in the router's
+  settings, or forward the port to your PC there ("port forwarding").
+- "no internet address of its own": your internet provider shares one address between customers
+  (common on mobile hotspots and satellite internet), or a second router sits in front of yours.
+  Let a friend host instead.
+- Or everyone joins the same Tailscale or ZeroTier network (free, no router settings) and the host
   shares the code from there.
+
+The code holds the host's internet address: only give it to people you want in the jam.
 
 Backing track: in the app, load it on the bar. In FL Studio, put a second Clod Scope with the role
 "Backing track" on a mixer insert that carries ONLY the beat (beat -> that insert -> Master), never

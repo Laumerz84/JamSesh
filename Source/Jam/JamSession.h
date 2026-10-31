@@ -1,6 +1,7 @@
 #pragma once
 
 #include "JamTypes.h"
+#include "JamReach.h"
 #include <juce_events/juce_events.h>
 #include <memory>
 
@@ -37,6 +38,7 @@ namespace jam
         Status status() const;
         juce::String statusText() const;        // one line for the UI, e.g. "Hosting on port 47800 - 2 friends in"
         juce::String sessionCode() const;       // what friends type to join (empty unless in a session)
+        ReachInfo reachInfo() const;            // host: can friends over the internet join? (JamReach.h)
         bool isHost() const;
         PeerId selfId() const;
 

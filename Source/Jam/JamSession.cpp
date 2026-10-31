@@ -382,6 +382,7 @@ void Session::leave()
 Status Session::status() const { return impl->network.status(); }
 juce::String Session::statusText() const { return impl->network.statusText(); }
 juce::String Session::sessionCode() const { return impl->network.sessionCode(); }
+ReachInfo Session::reachInfo() const { return impl->network.reachInfo(); }
 bool Session::isHost() const { return impl->network.isHost(); }
 PeerId Session::selfId() const { return impl->network.selfId(); }
 

@@ -5,7 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Static CRT so the .vst3 and the .exe have no runtime DLL dependencies
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(ClodScope VERSION 1.2.0)
+project(ClodScope VERSION 1.2.1)
 
 add_subdirectory(JUCE)
 
@@ -116,6 +116,7 @@ set(CLOD_SOURCES
     Source/UI/Editor/ThemePicker.cpp
     Source/Jam/JamSession.cpp
     Source/Jam/JamNet.cpp
+    Source/Jam/JamReach.cpp
     Source/Jam/JamClock.cpp
     Source/Jam/JamReplica.cpp
     Source/Jam/JamEngine.cpp
@@ -187,7 +188,7 @@ function(clod_add_tool target product)
 endfunction()
 
 clod_add_tool(ClodScopeSnap "Clod Scope Snap" tools/snap/SnapMain.cpp tools/snap/CpuTime.cpp)
-clod_add_tool(ClodJamTest "Clod Jam Test" tools/jam-test/JamTest.cpp)
+clod_add_tool(ClodJamTest "Clod Jam Test" tools/jam-test/JamTest.cpp tools/jam-test/ReachTest.cpp)
 
 #   ClodLatencyProbe  opens the audio interface with every driver type and prints the latencies it reports
 #                     (tools/latency-probe). Takes over the interface for a moment per test.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "JamTypes.h"
+#include "JamReach.h"
 #include <memory>
 #include <vector>
 
@@ -15,8 +16,12 @@
 // everyone pings everyone directly (which also opens most home routers); a pair that cannot reach
 // each other within ~3 s sends through the host instead (relay), and goes back to direct when it can.
 //
+// A host also runs jam::Reach (JamReach.h), which adds the internet address to the session code and
+// asks the router to forward the port.
+//
 // Test hooks (environment): CLOD_JAM_BIND=127.0.0.1 binds the socket to that address only (and puts
-// only it in the session code). CLOD_JAM_NETSIM="delay=30,jitter=5,loss=1,reorder=1,nodirect=1"
+// only it in the session code, without jam::Reach). CLOD_JAM_REACH="stun=HOST:PORT,router=URL" points
+// jam::Reach at a fake STUN server and router (and runs it even with CLOD_JAM_BIND). CLOD_JAM_NETSIM="delay=30,jitter=5,loss=1,reorder=1,nodirect=1"
 // simulates a network on the receive path: one-way delay ms, +-jitter ms, loss %, reorder %, and
 // nodirect=1 drops every packet that does not come from the host's address (forces the relay).
 namespace jam
@@ -59,6 +64,7 @@ namespace jam
         juce::String statusText() const;
         juce::String sessionCode() const;            // "JAM-XXXX-..." (host: right away; joiner: once in)
         juce::String plainCode() const;              // "ip,ip:port#key"
+        ReachInfo reachInfo() const;                 // host: can friends over the internet join? (JamReach.h)
         bool isHost() const;
         PeerId selfId() const;
         juce::Colour selfColour() const;
