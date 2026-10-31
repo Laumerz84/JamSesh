@@ -36,11 +36,20 @@ namespace jam
                 hist[0].count = hist[1].count = 0;
             }
 
-            // midi: events of the host block; only those in [midiStart, midiStart + n) belong to this chunk
+            // midi: events of the host block; only those in [midiStart, midiStart + n) belong to this chunk.
+            // hostBlock48k: the host's block in 48 kHz samples (the auto packet size follows it)
             void send (const float* left, const float* right, int n, double sampleRate, const juce::MidiBuffer* midi,
-                       int midiStart, const LatencyOptions& opts, Network& net, double sessionNow, bool allowMono) noexcept
+                       int midiStart, const LatencyOptions& opts, Network& net, double sessionNow, bool allowMono,
+                       int hostBlock48k) noexcept
             {
                 const double step = sampleRate / (double) wire::sampleRate;
+                const bool direct = sampleRate == (double) wire::sampleRate;
+                if (direct != wasDirect)
+                {
+                    // the device rate changed (prepare resets too): start the resampler from scratch
+                    wasDirect = direct;
+                    resampler.reset();
+                }
 
                 if (midi != nullptr)
                 {
@@ -57,13 +66,36 @@ namespace jam
                     }
                 }
 
+                if (direct)
+                {
+                    // 48 kHz device: straight into the packet. The resampler would only delay here: its 3-sample
+                    // lookahead left every packet short by 3 until the next host block (a whole block late).
+                    const double endCounter = (double) (counter + acc + n);
+                    int done = 0;
+                    while (done < n)
+                    {
+                        if (acc == 0)
+                            frames = wire::framesFor (opts.compression, opts.packetSamples, hostBlock48k);
+                        const int k = juce::jmin (frames - acc, n - done);
+                        std::memcpy (accL + acc, left + done, sizeof (float) * (size_t) k);
+                        std::memcpy (accR + acc, right + done, sizeof (float) * (size_t) k);
+                        acc += k;
+                        done += k;
+                        if (acc < frames)
+                            break;
+                        emit (opts, net, sessionNow - (endCounter - (double) counter) / wire::sampleRate, allowMono);
+                        acc = 0;
+                    }
+                    return;
+                }
+
                 resampler.write (left, right, n);
                 const double endCounter = (double) (counter + acc) + resampler.pendingInput() / step;
 
                 for (;;)
                 {
                     if (acc == 0)
-                        frames = wire::framesFor (opts.compression, opts.packetSamples);
+                        frames = wire::framesFor (opts.compression, opts.packetSamples, hostBlock48k);
                     acc += resampler.read (accL + acc, accR + acc, frames - acc, step);
                     if (acc < frames)
                         break;
@@ -214,6 +246,7 @@ namespace jam
             OpusEnc encMono, encStereo;
             float accL[wire::maxFrames] {}, accR[wire::maxFrames] {};
             int acc = 0, frames = 128, monoRun = 0;
+            bool wasDirect = false;
             juce::int64 counter = 0, prevCounter = -1;
             juce::uint8 frame[wire::maxFrameBytes] {}, prev[wire::maxFrameBytes] {};
             juce::uint8 packet[wire::maxPacketBytes] {};
@@ -305,6 +338,21 @@ namespace jam
         SyncDelay trackDelay;
         juce::AudioBuffer<float> trackBuf, monoTmp;
         bool wasInSession = false;
+
+        // the host's block for the auto packet size: the largest of the last half second (hosts such as
+        // FL Studio vary their blocks; the packet size should not chase every short one)
+        int autoBlock = 0, windowMax = 0, windowSamples = 0;
+        int hostBlock48k (int n) noexcept
+        {
+            windowMax = juce::jmax (windowMax, n);
+            windowSamples += n;
+            if (autoBlock == 0 || windowSamples >= (int) (sampleRate * 0.5))
+            {
+                autoBlock = windowMax;
+                windowMax = windowSamples = 0;
+            }
+            return (int) std::lround (autoBlock * (double) wire::sampleRate / sampleRate);
+        }
     };
 
     Port::Port (ClodScopeProcessor& p) : owner (p), impl (std::make_unique<Impl>())
@@ -326,6 +374,7 @@ namespace jam
         impl->sound.reset();
         impl->trackOut.reset();
         impl->trackDelay.prepare (impl->sampleRate);
+        impl->autoBlock = impl->windowMax = impl->windowSamples = 0;
         impl->trackBuf.setSize (2, chunkSize);
         impl->monoTmp.setSize (2, chunkSize);
         if (role() == Role::player)
@@ -361,6 +410,7 @@ namespace jam
         const double trackDelay = inSession && (opts.syncTrack || opts.oneBarMode) ? engine.syncDelaySeconds() : 0.0;
         const bool isPlayer = role() == Role::player;
         const bool raw = opts.sendMode == SendMode::rawInput;
+        const int block48k = d.hostBlock48k (n);
 
         for (int start = 0; start < n; start += chunkSize)
         {
@@ -381,9 +431,9 @@ namespace jam
                 {
                     if (raw && rawInput.getNumChannels() >= 2 && rawInput.getNumSamples() >= start + len)
                         d.sound.send (rawInput.getReadPointer (0, start), rawInput.getReadPointer (1, start), len,
-                                      d.sampleRate, &midi, start, opts, net, now, true);
+                                      d.sampleRate, &midi, start, opts, net, now, true, block48k);
                     else
-                        d.sound.send (sl, sr, len, d.sampleRate, nullptr, 0, opts, net, now, false);
+                        d.sound.send (sl, sr, len, d.sampleRate, nullptr, 0, opts, net, now, false, block48k);
                 }
 
                 // the standalone app's file player: send it, play it here (late by the sync delay)
@@ -394,7 +444,7 @@ namespace jam
                     auto* tl = d.trackBuf.getWritePointer (0);
                     auto* tr = d.trackBuf.getWritePointer (1);
                     if (inSession && ts->isPlaying())
-                        d.trackOut.send (tl, tr, len, d.sampleRate, nullptr, 0, opts, net, now, false);
+                        d.trackOut.send (tl, tr, len, d.sampleRate, nullptr, 0, opts, net, now, false, block48k);
                     d.trackDelay.process (tl, tr, len, trackDelay);
                     if (r != nullptr)
                     {
@@ -415,7 +465,7 @@ namespace jam
             {
                 // backing-track instance: its input is the track; send it, then play it here late
                 if (inSession)
-                    d.trackOut.send (sl, sr, len, d.sampleRate, nullptr, 0, opts, net, now, false);
+                    d.trackOut.send (sl, sr, len, d.sampleRate, nullptr, 0, opts, net, now, false, block48k);
 
                 if (r != nullptr)
                 {

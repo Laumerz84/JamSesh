@@ -11,11 +11,15 @@ namespace jam
         constexpr int ringMask = ReceiveStream::ringSize - 1;
 
         // Drift: the rate ratio comes from the two RateTrackers (sender's clock vs this card's), limited to
-        // +-300 ppm; a gentle proportional trim on the buffer level (50 samples off -> 100 ppm, at most
-        // +-100) removes what is left. Big level errors are fixed by a crossfaded skip or rewind instead.
-        constexpr double kp = 2.0e-6;
-        constexpr double maxDrift = 300.0e-6, maxProportional = 100.0e-6;
+        // +-300 ppm; a proportional trim on the buffer level (50 samples off -> 500 ppm, at most +-500 =
+        // 0.9 cent, inaudible) removes what is left. Level errors above ~1 ms are fixed by a crossfaded skip
+        // or rewind instead, so excess buffer (after the prebuffer, after a jitter spike) drains in seconds.
+        constexpr double kp = 10.0e-6;
+        constexpr double maxDrift = 300.0e-6, maxProportional = 500.0e-6;
         constexpr int fadeLength = 64;
+        // render-side headroom: callback lag spread per 1 s window, the largest of the last few windows,
+        // at most this much (a longer gap is a stall, not a pattern worth buffering for)
+        constexpr double maxRenderSpread = 0.02;
     }
 
     //==============================================================================
@@ -228,9 +232,9 @@ namespace jam
         senderPpm.store (senderRate.ppm(), std::memory_order_relaxed);
         senderRateReady.store (senderRate.ready(), std::memory_order_relaxed);
         jitterMs.store ((float) (peakSpread * 1000.0), std::memory_order_relaxed);
-        // safety margin: the worst recent lateness plus half a packet and 0.5 ms (arrival-time granularity)
-        jitterMarginSec.store (juce::jmax (2.5 * jitterJ, peakSpread) + 0.5 * v.h.frames / wireRate + 0.0005,
-                               std::memory_order_relaxed);
+        // safety margin, arrival side: the worst recent lateness plus 0.5 ms (arrival-time granularity). The
+        // render side (how unevenly this card's callbacks pull audio) is measured and added in render().
+        jitterMarginSec.store (juce::jmax (2.5 * jitterJ, peakSpread) + 0.0005, std::memory_order_relaxed);
     }
 
     void ReceiveStream::reset() noexcept
@@ -254,6 +258,9 @@ namespace jam
         rateCorrection = 0.0;
         cardRate.reset();
         consumedSeconds = 0.0;
+        renderWinStart = -1.0;
+        renderSpreadCount = renderSpreadHead = 0;
+        renderHeadroom = 0.0;
         haveLevel = haveOffset = false;
         lossEma = 0.0;
         prevWall = 0.0;
@@ -645,8 +652,36 @@ namespace jam
         }
 
         // this card's clock against the wall clock (the sender's is measured on arrival)
-        cardRate.add (ctx.wallNow, ctx.wallNow - consumedSeconds);
+        const double cardLag = ctx.wallNow - consumedSeconds;
+        cardRate.add (ctx.wallNow, cardLag);
         consumedSeconds += n / ctx.deviceRate;
+
+        // Render-side headroom: the arrival statistics never see how unevenly this card's callbacks come
+        // (WASAPI shared mode: bursts every 10 ms; DPC hiccups on ASIO). A callback early against the
+        // pace takes audio the level check (made at arrival, against a smoothly extrapolated reader) did
+        // not count. Measured as the spread of the callback lag inside 1 s windows, the largest of the
+        // last few windows; a jump (pause, reset) starts the window over.
+        if (renderWinStart < 0.0 || std::abs (cardLag - renderWinMin) > 0.25 || ctx.wallNow - renderWinStart > 2.0)
+        {
+            renderWinStart = ctx.wallNow;
+            renderWinMin = renderWinMax = cardLag;
+        }
+        else
+        {
+            renderWinMin = juce::jmin (renderWinMin, cardLag);
+            renderWinMax = juce::jmax (renderWinMax, cardLag);
+            if (ctx.wallNow - renderWinStart >= 1.0)
+            {
+                renderSpreads[renderSpreadHead] = juce::jmin (maxRenderSpread, renderWinMax - renderWinMin);
+                renderSpreadHead = (renderSpreadHead + 1) % numRenderWindows;
+                renderSpreadCount = juce::jmin (numRenderWindows, renderSpreadCount + 1);
+                renderHeadroom = 0.0;
+                for (int i = 0; i < renderSpreadCount; ++i)
+                    renderHeadroom = juce::jmax (renderHeadroom, renderSpreads[i]);
+                renderWinStart = ctx.wallNow;
+                renderWinMin = renderWinMax = cardLag;
+            }
+        }
 
         auto silence = [&]
         {
@@ -679,7 +714,9 @@ namespace jam
         const double step0 = wireRate / ctx.deviceRate;
         const int P = juce::jmax (1, lastFrames);
         const int need = (int) std::ceil (n * step0 * 1.002) + 5;
-        const double margin = (ctx.autoJitter ? juce::jlimit (0.001, 0.3, jitterMarginSec.load (std::memory_order_relaxed))
+        // auto: arrival jitter + this card's callback spread, at least 1 ms (the floor for a perfectly
+        // paced card, and for the first second before the spread is measured)
+        const double margin = (ctx.autoJitter ? juce::jlimit (0.001, 0.3, jitterMarginSec.load (std::memory_order_relaxed) + renderHeadroom)
                                               : juce::jlimit (0.0, 1.0, (double) ctx.jitterMs * 0.001)) * wireRate;
         // loss protection only helps if we can wait for the next packet (it carries the lost one)
         const double safety = protectedStream ? juce::jmax (margin, P + 0.001 * wireRate) : margin;
@@ -779,7 +816,7 @@ namespace jam
         }
 
         // far too much buffered (or too late in one-bar mode): drop, with a short crossfade
-        const double threshold = ctx.driftCorrection ? juce::jmax (120.0, (double) P, 0.5 * margin) : juce::jmax (96.0, (double) P);
+        const double threshold = ctx.driftCorrection ? juce::jmax (48.0, (double) juce::jmin (P, 56), 0.5 * margin) : juce::jmax (96.0, (double) P);
         bool crossfade = false;
         if (excess > threshold)
         {

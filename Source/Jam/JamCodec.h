@@ -39,11 +39,15 @@ namespace jam
         constexpr juce::uint8 flagRedundant = 1;
         constexpr juce::uint8 flagResend = 2;     // a loss-protection copy sent on its own (too big to ride along)
 
-        // Opus frames are 2.5 or 5 ms at 48 kHz; the packet size snaps to them when compression is on
-        inline int framesFor (bool compression, int packetSamples) noexcept
+        // Opus frames are 2.5 or 5 ms at 48 kHz; the packet size snaps to them when compression is on.
+        // packetSamples 0 = auto: the host's block in 48 kHz samples, 64..128, so a packet leaves with every
+        // block (32 stays a manual choice: 1500 packets/s per friend is too much for many home uplinks).
+        inline int framesFor (bool compression, int packetSamples, int hostBlock48k = 128) noexcept
         {
             if (compression)
                 return packetSamples <= 128 ? 120 : 240;
+            if (packetSamples <= 0)
+                return juce::jlimit (64, 128, hostBlock48k);
             return juce::jlimit (32, 256, packetSamples);
         }
     }

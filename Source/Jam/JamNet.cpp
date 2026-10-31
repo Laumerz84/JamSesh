@@ -8,6 +8,8 @@
  #include <winsock2.h>
  #include <ws2tcpip.h>
  #include <mstcpip.h>
+ #include <avrt.h>
+ #pragma comment (lib, "avrt.lib")
  #ifndef SIO_UDP_CONNRESET
   #define SIO_UDP_CONNRESET _WSAIOW (IOC_VENDOR, 12)
  #endif
@@ -24,8 +26,11 @@
 #include "JamClock.h"
 #include <juce_core/juce_core.h>
 #include <algorithm>
+#include <condition_variable>
 #include <deque>
 #include <map>
+#include <mutex>
+#include <thread>
 
 // Owner: net soldier. See JamNet.h for the shape and JamProtocol.h for the packets.
 //
@@ -104,6 +109,7 @@ namespace
         bool isHost = false, relayed = false, hasTrack = false, compression = false;
         SendMode sendMode = SendMode::finishedSound;
         float levelDb = -100.0f;
+        float captureMs = 0.0f;               // their input jack -> packet sent (metadata; 0 = not sent: older version)
         double added = 0, lastHeard = 0, lastDirectPong = 0, lastPing = 0, lastRelayPing = 0;
         double directRtt = 0, relayRtt = 0;   // seconds
         int slot = -1;
@@ -144,6 +150,139 @@ namespace
 
    #ifdef _WIN32
     using RawSocket = SOCKET;
+
+    // The network thread joins MMCSS "Pro Audio" (as audio threads do), so games' and the GUI's boosted
+    // threads don't delay its wake-up for an arrived packet (that delay would read as jitter -> buffer).
+    // Silent where MMCSS is unavailable (service stopped): the thread keeps its normal high priority.
+    struct ProAudioThread
+    {
+        ProAudioThread() noexcept { DWORD task = 0; h = AvSetMmThreadCharacteristicsW (L"Pro Audio", &task); }
+        ~ProAudioThread() { if (h != nullptr) AvRevertMmThreadCharacteristics (h); }
+        HANDLE h = nullptr;
+        JUCE_DECLARE_NON_COPYABLE (ProAudioThread)
+    };
+
+    // qWAVE: the socket's traffic to each friend marked as voice (Wi-Fi WMM puts it in the AC_VO queue:
+    // less airtime wait under load; DSCP where the network honours it). Nothing in the packets changes.
+    // qwave.dll is loaded at run time (some Windows Server installs lack it); every failure is silent.
+    // The qWAVE calls go to a service and can take hundreds of ms (measured: 0.3-1.3 s stalls when the
+    // network thread made them), so they run on their own worker thread: request() never waits.
+    // request(): network thread. close(): after the network thread stopped, before the socket closes.
+    class VoiceMarking
+    {
+    public:
+        ~VoiceMarking()
+        {
+            close();
+            if (dll != nullptr)
+                FreeLibrary (dll);
+        }
+
+        void request (SOCKET s, juce::uint32 ip, int port)
+        {
+            const auto key = ((juce::uint64) ip << 16) | (juce::uint64) (port & 0xffff);
+            if (std::find (requested.begin(), requested.end(), key) != requested.end() || requested.size() >= 32)
+                return;
+            requested.push_back (key);
+            {
+                const std::lock_guard<std::mutex> lk (mutex);
+                queue.push_back ({ s, ip, port });
+            }
+            if (! worker.joinable())
+                worker = std::thread ([this] { work(); });
+            wake.notify_one();
+        }
+
+        void close() noexcept
+        {
+            {
+                const std::lock_guard<std::mutex> lk (mutex);
+                stop = true;
+                queue.clear();
+            }
+            wake.notify_one();
+            if (worker.joinable())
+                worker.join();
+            stop = false;
+            if (handle != nullptr && closeFn != nullptr)
+                closeFn (handle);   // removes the flows
+            handle = nullptr;
+            requested.clear();
+        }
+
+    private:
+        struct Job { SOCKET s; juce::uint32 ip; int port; };
+
+        void work()
+        {
+            SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+            for (;;)
+            {
+                Job j {};
+                {
+                    std::unique_lock<std::mutex> lk (mutex);
+                    wake.wait (lk, [this] { return stop || ! queue.empty(); });
+                    if (stop)
+                        return;
+                    j = queue.front();
+                    queue.erase (queue.begin());
+                }
+                if (! ready())
+                    continue;
+                sockaddr_in a {};
+                a.sin_family = AF_INET;
+                a.sin_port = htons ((unsigned short) j.port);
+                a.sin_addr.s_addr = htonl (j.ip);
+                unsigned long flow = 0;
+                addFn (handle, j.s, (sockaddr*) &a, trafficTypeVoice, nonAdaptiveFlow, &flow);   // per destination (unconnected UDP)
+            }
+        }
+
+        struct Version { unsigned short major, minor; };
+        using CreateFn = BOOL (WINAPI*) (Version*, HANDLE*);
+        using AddFn = BOOL (WINAPI*) (HANDLE, SOCKET, sockaddr*, int, DWORD, unsigned long*);
+        using CloseFn = BOOL (WINAPI*) (HANDLE);
+        static constexpr int trafficTypeVoice = 4;          // QOSTrafficTypeVoice
+        static constexpr DWORD nonAdaptiveFlow = 2;         // QOS_NON_ADAPTIVE_FLOW: no network probing
+
+        bool ready() noexcept
+        {
+            if (handle != nullptr)
+                return true;
+            if (failed)
+                return false;
+            if (dll == nullptr)
+                dll = LoadLibraryW (L"qwave.dll");
+            if (dll != nullptr)
+            {
+                createFn = (CreateFn) (void*) GetProcAddress (dll, "QOSCreateHandle");
+                addFn = (AddFn) (void*) GetProcAddress (dll, "QOSAddSocketToFlow");
+                closeFn = (CloseFn) (void*) GetProcAddress (dll, "QOSCloseHandle");
+            }
+            Version v { 1, 0 };
+            HANDLE h = nullptr;
+            if (createFn == nullptr || addFn == nullptr || closeFn == nullptr || ! createFn (&v, &h) || h == nullptr)
+            {
+                failed = true;
+                return false;
+            }
+            handle = h;
+            return true;
+        }
+
+        HMODULE dll = nullptr;
+        CreateFn createFn = nullptr;
+        AddFn addFn = nullptr;
+        CloseFn closeFn = nullptr;
+        HANDLE handle = nullptr;                    // worker thread (close() after joining it)
+        bool failed = false;
+        std::vector<juce::uint64> requested;        // network thread
+        std::vector<Job> queue;
+        std::mutex mutex;
+        std::condition_variable wake;
+        bool stop = false;
+        std::thread worker;
+    };
    #else
     using RawSocket = int;
    #endif
@@ -218,7 +357,10 @@ struct Network::Impl : private juce::Thread
     bool localPlaying = false;
     double hostBpm = 120.0, hostPpq = 0.0, hostTempoAt = 0.0;
     bool hostPlaying = false, haveTempo = false;
-    double lastService = 0, lastMeta = 0, lastTempo = 0;
+    double lastService = 0, lastMeta = 0, lastTempo = 0, lastMarkFlows = 0;
+   #ifdef _WIN32
+    VoiceMarking voice;
+   #endif
 
     // ---- network simulator (test only; network thread) ----
     NetSim sim;
@@ -579,6 +721,9 @@ struct Network::Impl : private juce::Thread
                 const auto track = r.u8();
                 if (! r.ok)
                     return;
+                // trailing fields (1.2.4+); older senders end here. Readers ignore what follows what they know.
+                const float capture = r.remaining() >= 4 ? r.f32() : 0.0f;
+                p.captureMs = juce::jlimit (0.0f, 1000.0f, capture);
                 if (n.isNotEmpty() && n != p.name) { p.name = n; changed(); }
                 if (c != 0) p.colour = juce::Colour (c);
                 p.levelDb = juce::jlimit (-100.0f, 24.0f, level);
@@ -971,6 +1116,7 @@ struct Network::Impl : private juce::Thread
             o.w.u8 (meta.sendMode == SendMode::rawInput ? 1 : 0);
             o.w.u8 (meta.compression ? 1 : 0);
             o.w.u8 (meta.hasTrack ? 1 : 0);
+            o.w.f32 (meta.captureMs);    // trailing: 1.2.1-1.2.3 readers stop before it
             sendUnreliable (o, noPeer);
         }
 
@@ -991,6 +1137,9 @@ struct Network::Impl : private juce::Thread
     //==============================================================================
     void run() override
     {
+       #ifdef _WIN32
+        const ProAudioThread proAudio;
+       #endif
         juce::uint8 buf[maxDatagram + 64];
         while (! threadShouldExit())
         {
@@ -1044,12 +1193,41 @@ struct Network::Impl : private juce::Thread
                 onDatagram (bytes.data(), (int) bytes.size(), src, now);
             }
 
+            if (now - lastMarkFlows >= 0.5)
+            {
+                lastMarkFlows = now;
+                markVoiceFlows();
+            }
+
             if (now - lastService >= 0.01)
             {
                 lastService = now;
                 service (now);
             }
         }
+    }
+
+    // qWAVE voice marking for every destination this socket sends to (network thread; the qWAVE calls
+    // themselves run on VoiceMarking's worker)
+    void markVoiceFlows()
+    {
+       #ifdef _WIN32
+        const auto h = rawHandle.load();
+        if (h < 0)
+            return;
+        Endpoint eps[16];
+        int count = 0;
+        {
+            const juce::ScopedLock sl (lock);
+            if (hostEp.valid())
+                eps[count++] = hostEp;
+            for (auto& [id, p] : peers)
+                if (p.ep.valid() && count < (int) std::size (eps))
+                    eps[count++] = p.ep;
+        }
+        for (int i = 0; i < count; ++i)
+            voice.request ((SOCKET) h, eps[i].ip, eps[i].port);
+       #endif
     }
 
     //==============================================================================
@@ -1132,6 +1310,9 @@ struct Network::Impl : private juce::Thread
             signalThreadShouldExit();
             stopThread (2000);
         }
+       #ifdef _WIN32
+        voice.close();
+       #endif
         if (socket != nullptr)
         {
             socket->shutdown();
@@ -1169,7 +1350,7 @@ struct Network::Impl : private juce::Thread
 
     void start()
     {
-        lastService = lastMeta = lastTempo = 0;
+        lastService = lastMeta = lastTempo = lastMarkFlows = 0;
         startThread (juce::Thread::Priority::high);
     }
 
@@ -1401,6 +1582,7 @@ std::vector<Network::PeerSnapshot> Network::peers() const
         s.compression = p.compression;
         s.sendMode = p.sendMode;
         s.levelDb = p.levelDb;
+        s.captureMs = p.captureMs;
         s.rttMs = (float) ((p.relayed ? p.relayRtt : p.directRtt) * 1000.0);
         out.push_back (s);
     }
