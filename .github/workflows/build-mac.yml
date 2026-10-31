@@ -151,3 +151,56 @@ jobs:
             build/build.log
             build/auval.txt
           if-no-files-found: ignore
+
+  # Headless snapshots on macOS (tools/snap): the editor in every view and theme, painted off-screen, so the
+  # 3D views (OpenGL) and the theme fonts can be looked at without a Mac. A check, not part of the package.
+  snapshots:
+    runs-on: macos-15
+    timeout-minutes: 90
+    continue-on-error: true
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: brew install ninja ccache
+
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-mac-snap-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-mac-snap-${{ github.ref_name }}-
+            ccache-mac-snap-
+
+      - name: Build ClodScopeSnap
+        run: |
+          ccache --max-size=2G
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
+          rc=0
+          cmake --build build --target ClodScopeSnap -j "$(sysctl -n hw.ncpu)" -- -k 0 > build/build.log 2>&1 || rc=$?
+          grep -E -A4 "error:|FAILED:|ld: |Undefined symbols" build/build.log | head -200 || true
+          tail -3 build/build.log
+          exit "$rc"
+
+      - name: Snapshots (no window is shown)
+        run: |
+          snap="build/ClodScopeSnap_artefacts/Release/ClodScopeSnap"
+          mkdir -p "$RUNNER_TEMP/snap"
+          rc=0
+          "$snap" "$RUNNER_TEMP/snap" base themes jam > "$RUNNER_TEMP/snap/snap.txt" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/snap/snap.txt"
+          exit "$rc"
+
+      - name: Upload the snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-snapshots
+          path: ${{ runner.temp }}/snap/
+          if-no-files-found: ignore

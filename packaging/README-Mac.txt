@@ -78,8 +78,8 @@ The bar under the top of the window:
              follows the host's tempo.
 - Track      load a backing track to play along with (WAV, MP3, FLAC, OGG, AIFF), or drop the file
              on the bar. Play / Stop, Loop and volume. In a jam it streams to your friends.
-- Record     saves what you hear (you, your friends and the track) as a WAV file in your
-             Documents folder
+- Record     saves what you hear (you, your friends and the track) as a WAV file in
+             Documents/Jam Sesh/Recordings
 - i          about the app and its licence
 
 The app remembers its window, audio settings, sound and track between runs. The first time it
@@ -173,11 +173,18 @@ For the lowest delay:
 - close downloads and video streams while you play
 
 
+YOUR FILES
+
+Presets you save go to     Documents/Jam Sesh/Presets
+Recordings go to           Documents/Jam Sesh/Recordings
+Settings are kept in       ~/Library/Application Support/Jam Sesh
+
+
 UNINSTALL
 
 Drag Jam Sesh from Applications to the Trash, and the plugins from ~/Library/Audio/Plug-Ins/VST3
 and ~/Library/Audio/Plug-Ins/Components if you installed them. Your settings, presets and
-recordings stay; delete them too if you want them gone.
+recordings stay (see YOUR FILES): delete those folders too if you want them gone.
 
 
 FREE SOFTWARE

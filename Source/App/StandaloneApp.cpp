@@ -703,7 +703,6 @@ namespace
 
             // first run (no saved device setup): the lowest-delay device instead of JUCE's first type (Windows Audio
             // shared, ~30 ms more): a real ASIO driver at 128, else Low Latency Mode at its smallest buffer
-            // (macOS: CoreAudio at 128 instead of JUCE's 512)
             if (firstRun)
             {
                 const auto r = lowdelay::apply (holder->deviceManager, inputsNeeded, outputsNeeded, 128, false);

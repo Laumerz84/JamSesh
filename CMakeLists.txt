@@ -62,7 +62,7 @@ if(APPLE)
         ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Source/Resources/JamSesh-1024.png"
         MICROPHONE_PERMISSION_ENABLED TRUE
         MICROPHONE_PERMISSION_TEXT "Jam Sesh plays your instrument or voice from the audio input through its effects, and to your friends when you jam."
-        PLIST_TO_MERGE "<plist><dict><key>NSLocalNetworkUsageDescription</key><string>Jam Sesh connects to friends on your local network, and asks your router to open a port so friends on the internet can join.</string></dict></plist>")
+        PLIST_TO_MERGE "<plist><dict><key>NSLocalNetworkUsageDescription</key><string>Jam Sesh connects to friends on your local network, and asks your router to open a port so friends on the internet can join.</string><key>LSMinimumSystemVersion</key><string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string></dict></plist>")
 endif()
 
 # The plugin (VST3, AU) and the standalone app are built from the same code, and all are called Jam Sesh. Until
