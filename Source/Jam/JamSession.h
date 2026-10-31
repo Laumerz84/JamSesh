@@ -17,7 +17,7 @@ namespace jam
     class Port;      // Jam/JamPort.h    (owner: stream soldier)
     class Metronome; // Jam/JamMetronome.h (the shared metronome)
 
-    // The one Jam Sesh per process: every Clod Scope instance in an FL project, and the standalone app,
+    // The one Jam Sesh per process: every Jam Sesh plugin instance in an FL project, and the standalone app,
     // share it. Hold it with juce::SharedResourcePointer<jam::Session>; it lives while anyone holds it.
     //
     // Threads: control calls (host / join / leave / options / volumes) on the message thread; the audio

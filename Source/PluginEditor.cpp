@@ -505,7 +505,7 @@ juce::String ClodScopeEditor::chipStatus (int page) const
     if (page == chain::input)   return dbString (inPeakDb) + " dB";
     if (page == chain::output)  return dbString (outPeakDb) + " dB";
     if (page == chain::viewScope)
-        return currentView == 3 ? "edits sound" : "picture";
+        return currentView == 3 ? "edits sound" : currentView == 4 ? "sesh" : "picture";
     if (page == chain::sculpt)  return chain::isActive (s, chain::sculpt) ? "playing" : "synth off";
 
     if (! chain::isActive (s, page))
