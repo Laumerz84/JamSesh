@@ -82,6 +82,7 @@ namespace jam
             SendMode sendMode = SendMode::finishedSound;
             float rttMs = 0.0f;                      // round trip on the path in use (direct or via the host)
             float levelDb = -100.0f;
+            float captureMs = 0.0f;                  // their LocalMeta::captureMs (0 = not sent: an older version)
         };
         std::vector<PeerSnapshot> peers() const;     // everyone but self, by id
 
@@ -97,6 +98,7 @@ namespace jam
             juce::String chord;
             SendMode sendMode = SendMode::finishedSound;
             bool compression = false, hasTrack = false;
+            float captureMs = 0.0f;                  // input jack -> packet sent: sound card input + sound chain (0 = unknown)
         };
         void setLocalMeta (const LocalMeta&);                         // sent ~10 Hz by the network thread
         void setLocalTransport (double bpm, double ppq, bool playing); // the host sends it as the session tempo

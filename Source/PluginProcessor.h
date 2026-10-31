@@ -70,6 +70,11 @@ public:
     enum InputRouting { inputStereo = 0, inputFirstCentred = 1, inputMixCentred = 2 };
     std::atomic<int> inputRouting { inputStereo };
 
+    // The audio device's own latency as its driver reports it, in samples at the device rate (0 = unknown, e.g.
+    // inside a plugin host). The standalone app sets them whenever its device opens; the Jam Sesh panel and the
+    // per-player totals read them.
+    std::atomic<int> deviceInputLatency { 0 }, deviceOutputLatency { 0 };
+
     // Sees every finished block, after Jam Sesh: everything you hear (the standalone app's recorder)
     struct AudioTap
     {
