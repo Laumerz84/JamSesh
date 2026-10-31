@@ -7,7 +7,7 @@
 namespace juce { class AudioDeviceManager; }
 
 // The standalone app's own objects. StandaloneApp creates them before the processor and deletes them
-// after it, so the processor's track source and output tap never dangle. nullptr outside Clod Scope.exe.
+// after it, so the processor's track source and output tap never dangle. nullptr outside Jam Sesh.exe.
 // The holder's parts are passed in here so that the shared plugin code never includes JUCE's
 // standalone wrapper header. Owner: standalone soldier.
 struct AppServices

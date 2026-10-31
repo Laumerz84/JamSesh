@@ -21,6 +21,7 @@ namespace corehelp
              "3D Views: the four 3D wave views (helix, phase space, stereo 3D, waterfall), drawn on the GPU.\n"
              "Orbital: the sound mapped onto a quantum bound state and drawn as a probability cloud.\n"
              "Wave Sculptor: the synth's wave, its overtone bars and the A/B morph, edited directly with the mouse.\n"
+             "Jam Sesh: play together over the internet - host or join a sesh, hear your friends and see their views.\n"
              "Only the visible view does any work, so hidden views cost no CPU/GPU.",
              "Switching the view also opens its controls in the right column (the VIEW chip at the end of the chain "
              "strip opens them again later). Only the Wave Sculptor changes the sound - it edits the synth's wave.");

@@ -106,14 +106,16 @@ private:
     {
         static const std::vector<Page> p {
             { "Getting around",
-              "Clod Scope is a sound kit: any input can be shaped, turned into a synth, sculpted, sent through a "
-              "full effects rack - and watched on a scope, in 3D or as an atom.\f"
+              "Jam Sesh lets you play together online with friends, and it is a sound kit: any input can be shaped, "
+              "turned into a synth, sculpted, sent through a full effects rack - and watched on a scope, in 3D or as an "
+              "atom.\f"
               "## The chain strip (the main navigation)\nThe row of chips under the top bar is the signal chain, left to "
               "right in processing order. Click a chip to open that module's controls in the right column. The LED on a "
               "chip switches the module on or off; a dim chip is off and passes audio unchanged. The small line under "
               "each name shows its live state (level, tracked note, gain reduction...). Use < and > in the module header "
               "to step through the chain.\f"
-              "## Main view\nThe buttons at the top pick the big display: 2D Scope, 3D Views, Orbital or Wave Sculptor. "
+              "## Main view\nThe buttons at the top pick the big display: Jam Sesh (host or join a sesh and play with "
+              "friends), 2D Scope, 3D Views, Orbital or Wave Sculptor. "
               "The VIEW chip at the end of the strip opens the controls of the current view (picture only - they never "
               "change the sound, except the Wave Sculptor, which edits the synth's wave).\f"
               "## Inspector\nHover any knob, menu, switch or chip and the Inspector (bottom right) explains what it does "
@@ -135,7 +137,7 @@ private:
               "a preset. The dry signal used by Dry/Wet is the raw input, delayed to line up with the processed sound.\f"
               "## What the views show\n'Input' traces are taken before input gain (the raw signal); 'Output' traces after "
               "output gain. 'Show' on the 2D Scope display panel picks which one the scope and spectrum use.\f"
-              "## External input\nIn FL Studio set a mixer insert's input to your audio interface and put Clod Scope on that "
+              "## External input\nIn FL Studio set a mixer insert's input to your audio interface and put Jam Sesh on that "
               "insert." },
 
             { "Synth layer",
@@ -144,7 +146,7 @@ private:
               "following the input's envelope.\f"
               "## Layer modes\nThe synth can be blended with the input, add only new overtones on top of it, or replace "
               "it entirely - from subtle thickening to a full synth that you play with your voice.\f"
-              "## MIDI\nNotes sent to the plugin play the same engine polyphonically, so Clod Scope also works as an "
+              "## MIDI\nNotes sent to the plugin play the same engine polyphonically, so Jam Sesh also works as an "
               "instrument (route a MIDI track or the piano roll to it in FL Studio).\f"
               "## Tracked note\nThe top bar shows the note the tracker hears right now (and how many cents off it is); "
               "the SYNTH chip shows it too. Tracking works best on one note at a time - for chords, play the synth from MIDI." },

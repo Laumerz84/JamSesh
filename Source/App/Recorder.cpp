@@ -1,4 +1,5 @@
 #include "Recorder.h"
+#include "../AppPaths.h"
 
 // The writer is swapped with an atomic pointer. stop() clears it, then waits for a tap that may still
 // be using the old one (they last microseconds) before deleting it on the message thread.
@@ -7,7 +8,7 @@ struct Recorder::Impl
     Impl() { thread.startThread(); }
     ~Impl() { thread.stopThread (2000); }
 
-    juce::TimeSliceThread thread { "Clod Scope recorder" };
+    juce::TimeSliceThread thread { "Jam Sesh recorder" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> writer;   // message thread owns it
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> active { nullptr };
     std::atomic<int> inTap { 0 };
@@ -96,8 +97,7 @@ int Recorder::getDroppedBlocks() const noexcept    { return impl->dropped.load()
 
 juce::File Recorder::recordingsFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-               .getChildFile ("Clod Scope").getChildFile ("Recordings");
+    return apppaths::documents().getChildFile ("Recordings");
 }
 
 juce::File Recorder::newRecordingFile()

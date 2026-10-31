@@ -807,7 +807,7 @@ struct Network::Impl : private juce::Thread
         {
             Out o;
             begin (o, Type::reject);
-            o.w.str ("The session is full (" + juce::String (maxPlayers) + " players)");
+            o.w.str ("The sesh is full (" + juce::String (maxPlayers) + " players)");
             rawSend (src, o.data, o.w.pos);
             return;
         }
@@ -925,7 +925,7 @@ struct Network::Impl : private juce::Thread
     {
         if (id == hostPeer && ! hosting.load())
         {
-            error = "The host ended the session";
+            error = "The host ended the sesh";
             st = Status::failed;
             removePeer (id);
             return;
@@ -1272,7 +1272,7 @@ struct Network::Impl : private juce::Thread
         const auto bindAddr = juce::SystemStats::getEnvironmentVariable ("CLOD_JAM_BIND", {}).trim();
         if (! socket->bindToPort (port, bindAddr))
         {
-            err = port > 0 ? "Port " + juce::String (port) + " is already in use (another session open?)"
+            err = port > 0 ? "Port " + juce::String (port) + " is already in use (another sesh open?)"
                            : juce::String ("Could not open a network port");
             socket.reset();
             return false;
@@ -1488,7 +1488,7 @@ bool Network::startJoin (const juce::String& codeText, const juce::String& playe
     protocol::CodeInfo info;
     if (! protocol::parseCode (codeText, info))
     {
-        error = "That session code doesn't look right";
+        error = "That sesh code doesn't look right";
         return false;
     }
     if (! m.open (0, false, error))
@@ -1525,7 +1525,7 @@ juce::String Network::statusText() const
     const int others = (int) m.peers.size();
     switch (m.st)
     {
-        case Status::idle:    return "Not in a session";
+        case Status::idle:    return "Not in a sesh";
         case Status::hosting: return "Hosting on port " + juce::String (m.boundPort) + " - "
                                    + (others == 0 ? juce::String ("waiting for friends")
                                                   : juce::String (others) + (others == 1 ? " friend in" : " friends in"));
@@ -1539,7 +1539,7 @@ juce::String Network::statusText() const
                 if (p.isHost) hostName = p.name;
                 if (p.relayed) ++relayed;
             }
-            auto t = "In " + hostName + "'s session - " + juce::String (others + 1) + " players";
+            auto t = "In " + hostName + "'s sesh - " + juce::String (others + 1) + " players";
             if (relayed > 0)
                 t << " (" << relayed << " through the host)";
             return t;

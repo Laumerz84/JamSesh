@@ -758,7 +758,7 @@ namespace chain
             set (viewOrbital, "view.orbital", "VIEW", "VIEW", "Orbital display",
                  "Picture only: how the sound is turned into a quantum orbital and drawn as a cloud.", {}, Accent::physics, -1);
             set (viewJam, "view.jam", "VIEW", "VIEW", "Jam Sesh",
-                 "Play together over the internet: host or join a session, hear your friends and see their views.",
+                 "Play together over the internet: host or join a sesh, hear your friends and see their views.",
                  {}, Accent::jam, -1);
             return t;
         }
@@ -1518,7 +1518,7 @@ void ModuleHeader::paint (Graphics& g)
     }
     else
     {
-        tag = "PICTURE ONLY";
+        tag = page == chain::viewJam ? "PLAY TOGETHER" : "PICTURE ONLY";
     }
     g.setFont (Theme::font (10.5f, true));
     g.setColour (warn ? amber.withAlpha (0.9f) : dim);

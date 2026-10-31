@@ -40,6 +40,8 @@ ClodScopeEditor::ClodScopeEditor (ClodScopeProcessor& p)
       presetBar (p.presets, &inspector),
       presetBrowser (p.presets, &inspector)
 {
+    if (dataFoldersMoved)
+        proc.presets.rescanUserPresets();   // the processor listed them from the old folder
     setLookAndFeel (&lnf);
     views3D.reloadFromState();
 
@@ -116,15 +118,19 @@ ClodScopeEditor::ClodScopeEditor (ClodScopeProcessor& p)
     presetBrowser.onClose = [this] { hidePresetBrowser(); };
     addChildComponent (presetBrowser);
 
-    // segmented main-view switch, bound to the "mainView" parameter; each view in its own colour
+    // segmented main-view switch, bound to the "mainView" parameter; each view in its own colour. The app
+    // shows Jam Sesh first (playing together is what it is for), the plugin the views in parameter order
     const char* names[] = { "2D Scope", "3D Views", "Orbital", "Wave Sculptor", "Jam Sesh" };
     const juce::Colour accents[] = { Accent::view, Accent::view, Accent::physics, Accent::sculpt, Accent::jam };
     const juce::String viewTip = inspector.find ("mainView") != nullptr ? inspector.find ("mainView")->summary : juce::String();
-    for (int i = 0; i < numViews; ++i)
+    const bool jamFirst = StandaloneBar::isStandaloneApp();
+    for (int pos = 0; pos < numViews; ++pos)
     {
+        const int i = jamFirst ? (pos + jamViewId) % numViews : pos;
+        viewOrder[pos] = i;
         auto& b = viewButtons[i];
         b.setButtonText (names[i]);
-        b.setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0) | (i < numViews - 1 ? juce::Button::ConnectedOnRight : 0));
+        b.setConnectedEdges ((pos > 0 ? juce::Button::ConnectedOnLeft : 0) | (pos < numViews - 1 ? juce::Button::ConnectedOnRight : 0));
         b.setTooltip (viewTip);
         Theme::setAccent (b, accents[i]);
         b.onClick = [this, i] { setMainView (i); };
@@ -161,6 +167,13 @@ ClodScopeEditor::ClodScopeEditor (ClodScopeProcessor& p)
     setResizable (true, true);
     setResizeLimits (1200, 800, 3200, 2000);
     setSize (1500, 940);
+    // the app opens on Jam Sesh every time, whatever was open last: the view and its page. The plugin keeps
+    // the view and page it had.
+    if (appBar != nullptr)
+    {
+        setMainView (jamViewId);
+        page = chain::viewJam;
+    }
     mainViewAttachment->sendInitialUpdate();
 
     if (page < 0)
@@ -666,8 +679,8 @@ void ClodScopeEditor::paintLogo (juce::Graphics& g, juce::Rectangle<int> area)
     area.removeFromLeft (10);
     g.setColour (Palette::text);
     g.setFont (Theme::font (17.0f, true));
-    // fitted: some themes' fonts are wider than Consolas. The app shows its own name.
-    const juce::String name = appBar != nullptr ? juce::String (CLOD_APP_NAME).toUpperCase() : juce::String ("CLOD SCOPE");
+    // fitted: some themes' fonts are wider than Consolas. The plugin and the app have the same name.
+    const juce::String name = juce::String (CLOD_APP_NAME).toUpperCase();
     g.drawFittedText (name, area.removeFromTop (area.getHeight() / 2 + 3), juce::Justification::bottomLeft, 1, 0.7f);
     g.setColour (Palette::dim);
     g.setFont (Theme::font (9.5f, true));
@@ -820,8 +833,12 @@ void ClodScopeEditor::resized()
         total += widths[i];
     }
     viewSwitch.setBounds (bar.removeFromRight (total));
-    for (int i = 0, x = 0; i < numViews; x += widths[i], ++i)
+    for (int pos = 0, x = 0; pos < numViews; ++pos)
+    {
+        const int i = viewOrder[pos];
         viewButtons[i].setBounds (x, 0, widths[i], viewSwitch.getHeight());
+        x += widths[i];
+    }
     bar.removeFromRight (16);
     presetBar.setBounds (bar.removeFromLeft (juce::jmin (juce::jmax (0, presetBar.idealWidth()), bar.getWidth())));
 

@@ -4,13 +4,14 @@
 #include "../PluginProcessor.h"
 #include "../UI/Theme.h"
 #include "../Jam/JamSession.h"
+#include "../AppPaths.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 
 namespace
 {
     const char* const asioNotice = "ASIO is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries.";
-    const char* const licenceNotice = "Copyright (C) 2026 Clod Codes. " CLOD_APP_NAME " and Clod Scope are free software: you may share "
-                                      "and change them under the GNU General Public License version 3. They come with NO WARRANTY. "
+    const char* const licenceNotice = "Copyright (C) 2026 Clod Codes. " CLOD_APP_NAME " is free software: you may share "
+                                      "and change it under the GNU General Public License version 3. It comes with NO WARRANTY. "
                                       "The licence (LICENSE.txt) and the source code come with the download.";
 
     juce::String clock (double seconds)
@@ -212,14 +213,14 @@ namespace
     public:
         InfoView()
         {
-            text << CLOD_APP_NAME " " << JucePlugin_VersionString << " - the Clod Scope app\n\n"
+            text << CLOD_APP_NAME " " << JucePlugin_VersionString << " - play together online, live\n\n"
                  << "Audio: pick your audio interface; its own ASIO driver gives the lowest delay (Lowest delay picks it).\n"
                  << "  An amber Audio button: Windows Audio or DirectSound, about 30 ms more delay.\n"
-                 << "Input: plays your guitar or mic through Clod Scope. Use headphones, or the speakers feed back.\n"
+                 << "Input: plays your guitar or mic through " CLOD_APP_NAME ". Use headphones, or the speakers feed back.\n"
                  << "In: which inputs of your interface; one input sits in the middle, two can be mixed (a mic and a guitar).\n"
-                 << "Tempo: type a BPM or tap it; the delays and one-bar mode follow it. In a Jam Sesh you follow the host.\n"
+                 << "Tempo: type a BPM or tap it; the delays and one-bar mode follow it. In a sesh you follow the host.\n"
                  << "Track: load or drop a WAV, MP3, FLAC or OGG file to play along with; it streams to your friends.\n"
-                 << "Record: saves what you hear to Documents\\Clod Scope\\Recordings.\n\n"
+                 << "Record: saves what you hear to " << apppaths::shown (Recorder::recordingsFolder()) << ".\n\n"
                  << licenceNotice << "\n\n"
                  << asioNotice;
             setSize (560, 310);
@@ -250,7 +251,7 @@ struct StandaloneBar::Impl : private juce::Timer,
         audioBtn.setTooltip (audioTip);
         audioBtn.onClick = [this] { showAudioSettings(); };
 
-        inputBtn.setTooltip ("Play your input (guitar, mic) through Clod Scope. Use headphones to avoid feedback.");
+        inputBtn.setTooltip ("Play your input (guitar, mic) through " CLOD_APP_NAME ". Use headphones to avoid feedback.");
         inputBtn.onClick = [this] { toggleInput(); };
 
         inBtn.onClick = [this] { showInputPicker(); };
@@ -300,7 +301,8 @@ struct StandaloneBar::Impl : private juce::Timer,
             proc.apvts.state.setProperty ("appTrackVol", volume.getValue(), nullptr);
         };
 
-        recBtn.setTooltip ("Record what you hear (you, your friends and the track) to a WAV file in Documents\\Clod Scope\\Recordings");
+        recBtn.setTooltip ("Record what you hear (you, your friends and the track) to a WAV file in "
+                           + apppaths::shown (Recorder::recordingsFolder()));
         recBtn.onClick = [this] { toggleRecord(); };
         infoBtn.setTooltip ("About " CLOD_APP_NAME);
         infoBtn.onClick = [this]

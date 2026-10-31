@@ -2,7 +2,8 @@
 // the plugin, playing through the computer's audio interface (ASIO or Windows audio) and MIDI inputs.
 // JUCE's StandalonePluginHolder runs the audio device; the window is our own (no "Options" title-bar
 // button: the editor's StandaloneBar has the audio settings, input, tempo, backing track and recorder).
-//   Jam Sesh.exe --selftest <outDir>   headless check: no window, no audio device; writes selftest.txt
+//   Jam Sesh.exe --selftest <outDir>   headless check: no window, no audio device; writes selftest.txt (the
+//                                      data folders it uses are in <outDir>\selftest-data, never the user's)
 // Owner: standalone soldier.
 #include <juce_core/system/juce_TargetPlatform.h>
 
@@ -13,9 +14,14 @@
 #include "AppServices.h"
 #include "LowDelay.h"
 #include "StandaloneBar.h"
+#include "../AppPaths.h"
 #include "../PluginProcessor.h"
 #include "../UI/Theme.h"
+#include "../UI/Themes.h"
 #include "../UI/StreamSafe.h"
+#include "../UI/Editor/Chain.h"
+#include "../Jam/JamUiCommon.h"
+#include "../Jam/JamView.h"
 
 namespace
 {
@@ -181,7 +187,107 @@ namespace
             juce::Random rng { 1234 };
         };
 
-        bool run (const juce::File& outDir)
+        // ---- 0. the data folders (AppPaths.h), all under dataRoot (the user's are never touched): an install
+        //      from before 1.4.0 keeps its files in "Clod Scope" folders, which move to "Jam Sesh" once ----
+        void dataFolders (const juce::File& dataRoot)
+        {
+            dataRoot.deleteRecursively();   // the last self-test's
+            const auto oldSettings = dataRoot.getChildFile ("AppData").getChildFile ("Clod Scope");
+            const auto oldDocs = dataRoot.getChildFile ("Documents").getChildFile ("Clod Scope");
+            const auto newSettings = dataRoot.getChildFile ("AppData").getChildFile ("Jam Sesh");
+            const auto newDocs = dataRoot.getChildFile ("Documents").getChildFile ("Jam Sesh");
+            const juce::String theme = "theme=" + Themes::name (1) + "\n";
+            oldSettings.getChildFile ("Theme.settings").create();
+            oldSettings.getChildFile ("Theme.settings").replaceWithText (theme);
+            {
+                juce::PropertiesFile::Options o;   // as jamui::Settings and the app write them (XML)
+                juce::PropertiesFile jam (oldSettings.getChildFile ("Jam Sesh.settings"), o);
+                jam.setValue ("name", "Selftest player");
+                juce::PropertiesFile app (oldSettings.getChildFile ("Clod Scope.settings"), o);
+                app.setValue ("clodWindow", "selftest window");
+            }
+            oldDocs.getChildFile ("Presets").getChildFile ("Selftest.clodpreset").create();
+            oldDocs.getChildFile ("Presets").getChildFile ("Selftest.clodpreset").replaceWithText ("<ClodScopePreset name=\"Selftest preset\"/>\n");
+            oldDocs.getChildFile ("Recordings").getChildFile ("old take.wav").create();
+            oldDocs.getChildFile ("Recordings").getChildFile ("old take.wav").replaceWithText ("not a real wav");
+
+            const auto s = apppaths::settingsFolder();
+            const auto d = apppaths::documentsFolder();
+            const auto appFile = apppaths::appSettingsFile();
+            line ("data folders: settings " + s.dir.getFullPathName() + ", documents " + d.dir.getFullPathName()
+                  + ", app settings " + appFile.getFileName());
+            check (s.dir == newSettings && ! s.old && ! oldSettings.exists()
+                       && newSettings.getChildFile ("Theme.settings").loadFileAsString().trim() == theme.trim(),
+                   "old settings folder moved to Jam Sesh, Theme.settings intact");
+            const bool themeForced = juce::SystemStats::getEnvironmentVariable ("CLOD_THEME", {}).isNotEmpty();
+            check (themeForced || Themes::current() == 1, "the theme is read from the new folder (" + Themes::name (Themes::current())
+                                                              + (themeForced ? ", forced by CLOD_THEME" : "") + ")");
+            {
+                juce::PropertiesFile app (appFile, juce::PropertiesFile::Options());
+                check (appFile == newSettings.getChildFile ("App.settings") && app.getValue ("clodWindow") == "selftest window"
+                           && ! newSettings.getChildFile ("Clod Scope.settings").exists(),
+                       "the app's Clod Scope.settings is now App.settings, content kept");
+            }
+            {
+                juce::SharedResourcePointer<jamui::Settings> jam;
+                check (jamui::Settings::location() == newSettings.getChildFile ("Jam Sesh.settings") && jam->name() == "Selftest player",
+                       "Jam Sesh.settings (your name) read from the new folder");
+            }
+            check (d.dir == newDocs && ! d.old && ! oldDocs.exists()
+                       && newDocs.getChildFile ("Presets").getChildFile ("Selftest.clodpreset").existsAsFile()
+                       && newDocs.getChildFile ("Recordings").getChildFile ("old take.wav").loadFileAsString() == "not a real wav",
+                   "old documents folder moved to Jam Sesh (presets, recordings intact)");
+            check (Recorder::recordingsFolder() == newDocs.getChildFile ("Recordings") && apppaths::settings() == newSettings
+                       && ! apppaths::allowMoves(),
+                   "recordings go to Jam Sesh\\Recordings; the folders stay decided");
+
+            // a processor alone (the VST3 build's moduleinfo step, a plugin scan, PluginTest) moves nothing: the
+            // old folder until the window opens or the app starts
+            {
+                const auto base = dataRoot.getChildFile ("scan");
+                base.getChildFile ("Clod Scope").getChildFile ("Presets").createDirectory();
+                const auto f = apppaths::moveOnce (base, false);
+                check (f.old && f.dir == base.getChildFile ("Clod Scope") && ! base.getChildFile ("Jam Sesh").exists(),
+                       "without leave to move (no window, no app): the old folder is used, nothing moved");
+            }
+            // both there (an older version ran again after the move): the new one, the old one left as it is
+            {
+                const auto base = dataRoot.getChildFile ("both");
+                base.getChildFile ("Clod Scope").getChildFile ("x.txt").create();
+                base.getChildFile ("Jam Sesh").createDirectory();
+                const auto f = apppaths::moveOnce (base);
+                check (f.dir == base.getChildFile ("Jam Sesh") && ! f.old && base.getChildFile ("Clod Scope").getChildFile ("x.txt").existsAsFile(),
+                       "both folders there: Jam Sesh is used, the old one is left alone");
+            }
+            // a new install: the new folder, created only when something is written there
+            {
+                const auto base = dataRoot.getChildFile ("fresh");
+                const auto f = apppaths::moveOnce (base);
+                check (f.dir == base.getChildFile ("Jam Sesh") && ! f.old && ! base.exists(), "a new install: Jam Sesh, nothing created");
+            }
+           #if JUCE_WINDOWS
+            // a file in the old folder in use (an older version records into it): the old folder this time, the
+            // move on the next start
+            {
+                const auto base = dataRoot.getChildFile ("busy");
+                const auto take = base.getChildFile ("Clod Scope").getChildFile ("Recordings").getChildFile ("take.wav");
+                take.create();
+                apppaths::Folder busy;
+                {
+                    juce::FileOutputStream recording (take);   // held open, as an older version's recorder would
+                    busy = apppaths::moveOnce (base);
+                }
+                const auto later = apppaths::moveOnce (base);
+                line ("old folder with a file open: " + busy.dir.getFileName() + (busy.old ? " (old)" : "") + "; closed: "
+                      + later.dir.getFileName());
+                check (busy.old && busy.dir == base.getChildFile ("Clod Scope") && ! later.old
+                           && later.dir.getChildFile ("Recordings").getChildFile ("take.wav").existsAsFile(),
+                       "a file in use: the old folder is used, the move happens once it is closed");
+            }
+           #endif
+        }
+
+        bool run (const juce::File& outDir, const juce::File& dataRoot)
         {
             outDir.createDirectory();
             const double sr = 48000.0;
@@ -190,12 +296,20 @@ namespace
                   + juce::Time::getCurrentTime().toString (true, true));
             line ("rate " + juce::String (sr, 0) + " Hz, block " + juce::String (bs));
 
+            dataFolders (dataRoot);
+
             AppServices services;   // declared first: outlives the processor, as in the app
             auto proc = juce::createPluginFilterOfType (juce::AudioProcessor::wrapperType_Standalone);
             auto* cs = dynamic_cast<ClodScopeProcessor*> (proc.get());
             check (cs != nullptr, "processor created (wrapper type Standalone)");
             if (cs == nullptr)
                 return false;
+            {
+                bool found = false;
+                for (auto& e : cs->presets.entries())
+                    found = found || (! e.factory && e.name == "Selftest preset");
+                check (found, "the moved user preset is in the preset list");
+            }
 
             proc->disableNonMainBuses();
             proc->setRateAndBufferSizeDetails (sr, bs);
@@ -564,11 +678,56 @@ namespace
             // ---- 5. the editor with its StandaloneBar, painted off-screen (never added to the desktop) ----
             {
                 AppServices::instance() = &services;
+                // as if the 2D scope and the input page were open last time: the app opens on Jam Sesh anyway
+                if (auto* mv = cs->apvts.getParameter ("mainView"))
+                    mv->setValueNotifyingHost (mv->convertTo0to1 (0.0f));
+                cs->apvts.state.setProperty ("uiModule", chain::info (chain::input).key, nullptr);
                 std::unique_ptr<juce::AudioProcessorEditor> ed (proc->createEditorIfNeeded());
                 if (ed != nullptr)
                 {
                     ed->setSize (1500, 940);
                     ed->setVisible (true);
+
+                    // Jam Sesh's view and page, and its button the leftmost of the view switch
+                    std::function<juce::TextButton* (juce::Component&)> findJamButton = [&] (juce::Component& c) -> juce::TextButton*
+                    {
+                        for (auto* child : c.getChildren())
+                        {
+                            if (auto* b = dynamic_cast<juce::TextButton*> (child); b != nullptr && b->getButtonText() == "Jam Sesh")
+                                return b;
+                            if (auto* b = findJamButton (*child))
+                                return b;
+                        }
+                        return nullptr;
+                    };
+                    const int view = juce::roundToInt (cs->apvts.getRawParameterValue ("mainView")->load());
+                    const auto page = cs->apvts.state.getProperty ("uiModule").toString();
+                    bool jamShown = false;
+                    for (auto* c : ed->getChildren())
+                        if (auto* jv = dynamic_cast<JamView*> (c))
+                            jamShown = jv->isVisible() && jv->getWidth() > 0;
+                    auto* jamButton = findJamButton (*ed);
+                    bool jamFirst = jamButton != nullptr && jamButton->getToggleState();
+                    if (jamButton != nullptr)
+                        for (auto* sibling : jamButton->getParentComponent()->getChildren())
+                            jamFirst = jamFirst && (sibling == jamButton || sibling->getX() > jamButton->getX());
+                    line ("start screen: view " + juce::String (view) + ", page " + page + ", Jam Sesh view "
+                          + (jamShown ? "shown" : "hidden") + ", Jam Sesh button " + (jamFirst ? "first" : "not first"));
+                    check (view == 4 && page == chain::info (chain::viewJam).key && jamShown,
+                           "the app opens on Jam Sesh (view and page), whatever was open last");
+                    check (jamFirst, "Jam Sesh is the first button of the view switch (and on)");
+                    {
+                        juce::Image whole (juce::Image::RGB, ed->getWidth(), ed->getHeight(), true, juce::SoftwareImageType());
+                        {
+                            juce::Graphics g (whole);
+                            ed->paintEntireComponent (g, true);
+                        }
+                        const auto png = outDir.getChildFile ("selftest-editor.png");
+                        png.deleteFile();
+                        juce::FileOutputStream os (png);
+                        juce::PNGImageFormat().writeImageToStream (whole, os);
+                        line ("the app's start screen -> " + png.getFileName());
+                    }
                     StandaloneBar* bar = nullptr;
                     for (auto* c : ed->getChildren())
                         if (auto* b = dynamic_cast<StandaloneBar*> (c))
@@ -638,18 +797,6 @@ namespace
     class ClodStandaloneApp final : public juce::JUCEApplication
     {
     public:
-        ClodStandaloneApp()
-        {
-            // the settings keep the plugin's name (%APPDATA%\Clod Scope\Clod Scope.settings), from before the
-            // app was called Jam Sesh
-            juce::PropertiesFile::Options options;
-            options.applicationName = juce::CharPointer_UTF8 (JucePlugin_Name);
-            options.filenameSuffix = ".settings";
-            options.osxLibrarySubFolder = "Application Support";
-            options.folderName = "";
-            appProperties.setStorageParameters (options);
-        }
-
         const juce::String getApplicationName() override           { return juce::CharPointer_UTF8 (CLOD_APP_NAME); }
         const juce::String getApplicationVersion() override        { return JucePlugin_VersionString; }
         bool moreThanOneInstanceAllowed() override                 { return true; }
@@ -665,8 +812,10 @@ namespace
                 const auto dirArg = args[st + 1].unquoted();
                 const auto outDir = dirArg.isNotEmpty() ? juce::File::getCurrentWorkingDirectory().getChildFile (dirArg)
                                                         : juce::File::getCurrentWorkingDirectory();
+                const auto dataRoot = outDir.getChildFile ("selftest-data");
+                apppaths::useTestRoot (dataRoot);   // before anything asks for a folder: the user's are never touched
                 SelfTest test;
-                const bool passed = test.run (outDir);
+                const bool passed = test.run (outDir, dataRoot);
                 outDir.getChildFile ("selftest.txt").replaceWithText (test.log);
                 setApplicationReturnValue (passed ? 0 : 1);
                 quit();
@@ -678,7 +827,11 @@ namespace
             services = std::make_unique<AppServices>();
             AppServices::instance() = services.get();
 
-            auto* settings = appProperties.getUserSettings();
+            // the app's settings (audio setup, window, the last state): %APPDATA%\Jam Sesh\App.settings, moved
+            // there from %APPDATA%\Clod Scope\Clod Scope.settings once (AppPaths.h: the app moves the old folders)
+            apppaths::allowMoves();
+            appSettings = std::make_unique<juce::PropertiesFile> (apppaths::appSettingsFile(), juce::PropertiesFile::Options());
+            auto* settings = appSettings.get();
             const bool firstRun = settings->getXmlValue ("audioSetup") == nullptr;   // decided before the holder runs
             const juce::Array<juce::StandalonePluginHolder::PluginInOuts> channels;
             holder = std::make_unique<juce::StandalonePluginHolder> (settings, false, juce::String(), nullptr, channels, false);
@@ -734,7 +887,8 @@ namespace
             holder = nullptr;         // stops the audio device, saves its setup, deletes the processor
             AppServices::instance() = nullptr;
             services = nullptr;       // after the processor: it held the track source and the output tap
-            appProperties.saveIfNeeded();
+            if (appSettings != nullptr)
+                appSettings->saveIfNeeded();
         }
 
         void systemRequestedQuit() override
@@ -751,7 +905,7 @@ namespace
         }
 
     private:
-        juce::ApplicationProperties appProperties;
+        std::unique_ptr<juce::PropertiesFile> appSettings;   // first: the holder refers to it
         std::unique_ptr<AppServices> services;
         std::unique_ptr<juce::StandalonePluginHolder> holder;
         std::unique_ptr<lowdelay::LatencyPublisher> latencyPublisher;
