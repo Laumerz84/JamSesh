@@ -297,8 +297,8 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         kbps.onChange = [this] { const int v = kbps.getSelectedId(); if (v > 0) edit ([v] (jam::LatencyOptions& o) { o.opusKbps = v; }); };
         setup (kbps, "jam.opusKbps");
 
-        packet.create (panel, { "64", "128", "256" });
-        packet.onPick = [this] (int i) { edit ([i] (jam::LatencyOptions& o) { o.packetSamples = 64 << i; }); };
+        packet.create (panel, { "Auto", "32", "64", "128", "256" });
+        packet.onPick = [this] (int i) { edit ([i] (jam::LatencyOptions& o) { o.packetSamples = i == 0 ? 0 : 32 << (i - 1); }); };
         for (auto* b : packet.buttons) hovers.push_back (std::make_unique<widgets_detail::HoverReporter> (*b, "jam.packetSamples", help));
         packet.setTooltip (summaryOf ("jam.packetSamples"));
 
@@ -332,8 +332,8 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
                                       "about 10x less data but ~5 ms more delay.";
         notes[lossNote].text = "Sends each packet's audio again in the next one, so a single lost packet is not heard. Doubles the "
                                "audio data and adds one packet of delay.";
-        notes[packetNote].text = "Samples per packet at 48 kHz: 64 = 1.3 ms, 128 = 2.7 ms, 256 = 5.3 ms. Smaller is quicker but "
-                                 "sends more packets (more header data, harder on Wi-Fi).";
+        notes[packetNote].text = "Samples per packet at 48 kHz. Auto follows your sound card's block (64 to 128), which is "
+                                 "quickest. 32 = 0.7 ms is quicker still but sends 1500 packets a second; 256 = 5.3 ms suits Wi-Fi.";
         notes[jitterNote].text = "The safety buffer that evens out packets arriving early or late. Auto adapts to each friend's "
                                  "connection; Fixed always waits this long. Too small = crackles, too big = delay.";
         notes[driftNote].text = "Stretches each friend's audio very slightly to your sound card's clock. Inaudible; without it a "
@@ -415,7 +415,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         kbps.setSelectedId (k, juce::dontSendNotification);
         kbps.setEnabled (o.compression);
         kbps.setAlpha (o.compression ? 1.0f : 0.4f);
-        packet.select (o.packetSamples <= 64 ? 0 : o.packetSamples <= 128 ? 1 : 2);
+        packet.select (o.packetSamples <= 0 ? 0 : o.packetSamples <= 32 ? 1 : o.packetSamples <= 64 ? 2 : o.packetSamples <= 128 ? 3 : 4);
         jitterMode.select (o.autoJitterBuffer ? 0 : 1);
         if (! jitterMs.isMouseButtonDown())
             jitterMs.setValue (o.jitterMs, juce::dontSendNotification);
@@ -526,24 +526,29 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
     void updateEstimate()
     {
         const auto o = session->options();
-        const double sr = juce::jmax (8000.0, proc.currentSampleRate.load());
-        const float cardMs = (float) (1000.0 * juce::jmax (16, proc.getBlockSize()) / sr);
+        const auto me = session->engine().localLatency (proc);
         const int ch = o.sendMode == jam::SendMode::rawInput ? 1 : 2;
-        const auto e = jamui::estimate (o, cardMs, session->sessionBpm(), ch);
+        const auto e = jamui::estimate (o, me, session->sessionBpm(), ch);
 
         juce::String d, u;
         if (o.oneBarMode)
             d << "1 bar = " << jamui::ms (e.oneBarMs) << " at " << juce::String (session->sessionBpm(), 0) << " BPM (in time)";
         else
-            d << "~" << jamui::ms (e.totalMs) << " + the network";
+            d << (e.cardKnown ? "~" : "about ") << jamui::ms (e.totalMs) << " + the network";
         u << jamui::mbit (e.mbitPerFriend) << " per friend";
         if (friends > 0)
             u << ", " << jamui::mbit (e.mbitPerFriend * (float) friends) << " now";
         else
             u << ", " << jamui::mbit (e.mbitPerFriend * (float) (jam::maxPlayers - 1)) << " with 5";
         juce::String parts;
-        parts << "packet " << jamui::ms (e.packetMs) << "  +  codec " << jamui::ms (e.codecMs) << "  +  buffer " << jamui::ms (e.bufferMs)
-              << "  +  sound card " << jamui::ms (e.cardMs) << "   |   " << e.packetsPerSecond << " packets/s each way";
+        if (e.cardKnown)
+            parts << "sound card in " << juce::String (e.cardInMs, 1) << " + out " << jamui::ms (e.cardOutMs);
+        else
+            parts << "sound card ~" << jamui::ms (e.cardMs) << " (estimate: 2 x block + 1.5)";
+        parts << "  +  sound chain " << jamui::ms (e.chainMs) << "  +  packets & buffer " << jamui::ms (e.bufferMs);
+        if (o.compression)
+            parts << "  +  codec " << jamui::ms (e.codecMs);
+        parts << "   |   packet " << jamui::ms (e.packetMs) << ", " << e.packetsPerSecond << " packets/s each way";
         if (d != estDelay || u != estUpload || parts != estParts)
         {
             estDelay = d;
@@ -936,8 +941,10 @@ HelpList JamPanel::helpEntries()
           {} },
         { "jam.latency", "Total latency",
           "How long from this friend's pick attack to your ears, everything included. Hover for the breakdown.",
-          "Sum in ms of: network (one way), your safety buffer for them, the codec (0 when uncompressed, ~5 ms with Opus) "
-          "and the packet + both sound cards. Green under 20 ms (feels like one room), amber under 40 ms, pink above.",
+          "Sum in ms of: their side (their sound card's input + their sound chain + packet, as their Jam Sesh reports it; "
+          "estimated for older versions), the network (one way), the codec (0 uncompressed, 2.5 ms Opus look-ahead) and your "
+          "side (your safety buffer for them + your sound card's output as its driver reports it; inside a plugin host the "
+          "sound card is estimated). Green under 20 ms (feels like one room), amber under 40 ms, pink above.",
           "Above ~40 ms tight playing gets hard: try smaller packets, compression off, a smaller sound-card buffer or one-bar mode." },
         { "jam.role", "This plugin's role",
           "Whether this Clod Scope is your player or the session's backing track.",
@@ -975,9 +982,10 @@ HelpList JamPanel::helpEntries()
           "Worth it on Wi-Fi or a busy connection (loss shown on the tiles above 1 %)." },
         { "jam.packetSamples", "Packet size",
           "How much audio goes into each network packet.",
-          "64 / 128 / 256 samples at 48 kHz = 1.3 / 2.7 / 5.3 ms of waiting per packet, and 750 / 375 / 188 packets per "
-          "second to each friend. Every packet carries ~60 bytes of headers, so small packets cost upload.",
-          "128 is the default. 64 for the lowest delay on wired connections; 256 for Wi-Fi." },
+          "Auto: one packet per block of your sound card (64 to 128 samples), so no audio waits for a packet to fill. "
+          "32 / 64 / 128 / 256 samples at 48 kHz = 0.7 / 1.3 / 2.7 / 5.3 ms of audio per packet and 1500 / 750 / 375 / 188 "
+          "packets per second to each friend. Every packet carries ~60 bytes of headers, so small packets cost upload.",
+          "Auto is the default. 32 only on a fast wired upload; 256 for Wi-Fi." },
         { "jam.jitterBuffer", "Jitter buffer",
           "The safety buffer that evens out packets arriving early or late.",
           "Auto: adapts per friend to their connection's jitter (bigger when packets arrive unevenly, smaller when calm). "
@@ -1004,8 +1012,10 @@ HelpList JamPanel::helpEntries()
           "Works for loops and jams over a repeating progression; not for call-and-response." },
         { "jam.estimate", "Latency estimate",
           "What your current options cost: delay and upload.",
-          "Delay = packet + codec + safety buffer + your sound card's block, in ms, without the network itself. Upload = "
-          "audio + headers to one friend in Mbit/s (you send to every friend separately).",
+          "Delay, one way to a friend with your sound card and options, without the network itself: your sound card's input "
+          "+ output (as its driver reports them; inside a plugin host estimated as 2 x block + 1.5 ms), your sound chain, "
+          "the packets and the friend's safety buffer on a calm connection, and the codec. Upload = audio + headers to one "
+          "friend in Mbit/s (you send to every friend separately).",
           {} },
     };
 }
