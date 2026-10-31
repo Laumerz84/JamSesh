@@ -501,6 +501,7 @@ struct FxRack::Impl
         std::atomic<float>* on = nullptr;
         std::atomic<float>* mix = nullptr;   // optional parallel mix (0..100), folded into the crossfade
         float wet = 0.0f;                    // current crossfade position 0..1 (x mix)
+        float align = 1.0f;                  // app only: 1 = this module's latency is in the path (fades when it comes/goes)
         bool active = false;
     };
 
@@ -536,6 +537,7 @@ struct FxRack::Impl
     double sampleRate = 44100.0;
     int maxBlock = 512, channels = 2, latAmp = 0, latLim = 0;
     float fadeStep = 0.001f;
+    bool liveLatency = false;                // app: an off module adds no delay (FxRack::setLiveLatency)
     std::atomic<double> lastBpm { 120.0 };
     std::atomic<bool> isPrepared { false };
     Worker worker;

@@ -225,7 +225,7 @@ void LimiterStage::bind (juce::AudioProcessorValueTreeState& s)
 void LimiterStage::prepare (double sampleRate, int, int)
 {
     sr = sampleRate;
-    hold = juce::jmax (2, (int) std::round (0.0015 * sr));   // 1.5 ms look-ahead
+    hold = juce::jmax (2, (int) std::round (0.00075 * sr));   // 0.75 ms look-ahead
     holdBuf.assign ((size_t) hold, 1.0f);
     dq.assign ((size_t) hold + 1, 0);
     boxBuf.assign ((size_t) hold, 1.0f);

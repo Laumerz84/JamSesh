@@ -28,9 +28,19 @@ public:
     explicit FxRack (juce::AudioProcessorValueTreeState&);
     ~FxRack();
 
+    // Plugin (default): the latency is fixed after prepare() - the amp's oversampling and the limiter's
+    // look-ahead stay in the path even when those modules are off - so a host's delay compensation never
+    // changes. App (live = true, set before prepare()): no host compensates anything, so only the modules
+    // that are on add their delay; switching crossfades between the two timings, so it never clicks.
+    void setLiveLatency (bool live) noexcept;
     void prepare (double sampleRate, int maxBlockSize, int numChannels);
     void reset();
-    int latencySamples() const noexcept;           // fixed after prepare(); the processor compensates the dry path
+    int latencySamples() const noexcept;           // plugin: fixed after prepare(). app: what is in the path now (audio thread)
+    int maxLatencySamples() const noexcept;        // the plugin's fixed value = the app's worst case
+
+    // Audio thread: delays the dry path of the global mix by latencySamples(), so it lines up with the rack's
+    // output. When that changes (app) it crossfades from the old delay to the new one over 10 ms.
+    void alignDry (juce::AudioBuffer<float>& dry, int numChannels, int numSamples) noexcept;
 
     struct Transport
     {
@@ -56,5 +66,7 @@ public:
 
 private:
     struct Impl;
+    struct DryAlign;
     std::unique_ptr<Impl> impl;
+    std::unique_ptr<DryAlign> dryAlign;
 };

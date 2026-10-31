@@ -59,8 +59,11 @@ void AmpStage::prepare (double sampleRate, int, int numChannels)
 {
     sr = sampleRate;
     prepCh = juce::jlimit (1, maxCh, numChannels);
+    // IIR polyphase half-band filters: ~3.4 samples of delay at the base rate instead of the linear-phase
+    // FIR's 38 (their phase shift sits in the top octave, after the clipping). Integer latency (5 samples)
+    // keeps the bypass / dry paths exactly aligned.
     os = std::make_unique<juce::dsp::Oversampling<float>> ((size_t) prepCh, 2,
-            juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, false, true);
+            juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, false, true);
     os->initProcessing ((size_t) chunk);
     osr = sr * 4.0;
     lat = (int) std::round (os->getLatencyInSamples());
