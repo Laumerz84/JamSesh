@@ -19,6 +19,12 @@ struct AppServices
     juce::Value inputMuted;                              // refers to the holder's "mute input" value
     juce::PropertySet* settings = nullptr;               // the app's settings file
     std::function<void()> saveAudioState;                // writes the device setup to the settings
+    int inputsNeeded = 2, outputsNeeded = 2;             // the channel counts the holder opened the device with
+    juce::String startupNote;                            // shown once on the bar (e.g. the first run's device pick)
+    juce::String testDeviceType;                         // --selftest only: the bar acts as if this type were open
+
+    // the open device type (or the self-test's stand-in); empty = none
+    juce::String currentDeviceType() const;
 
     static AppServices*& instance() noexcept
     {
@@ -26,6 +32,16 @@ struct AppServices
         return current;
     }
 };
+
+#include <juce_audio_devices/juce_audio_devices.h>
+
+inline juce::String AppServices::currentDeviceType() const
+{
+    if (testDeviceType.isNotEmpty())
+        return testDeviceType;
+    return deviceManager != nullptr && deviceManager->getCurrentAudioDevice() != nullptr ? deviceManager->getCurrentAudioDeviceType()
+                                                                                          : juce::String();
+}
 
 // Tap tempo: the average of the last few intervals; a pause over 2 s starts a new count.
 struct TapTempo

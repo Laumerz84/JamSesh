@@ -46,8 +46,10 @@ protected your PC". Click "More info", then "Run anyway".
 
 The bar under the top of the window:
 - Audio      pick your audio interface, its inputs and outputs, sample rate and buffer size.
-             Use the ASIO driver of your interface for the lowest delay (64-256 samples).
-             No ASIO driver? Use "Windows Audio (Low Latency Mode)" or install ASIO4ALL.
+             "Lowest delay" picks for you (see SOUND CARD DELAY below). Under the list it shows
+             your sound card's delay as its driver reports it (in + out = round trip), the
+             dropouts in the last minute and the load. The button turns amber while the app runs
+             on "Windows Audio" or DirectSound, which add about 30 ms.
 - Input      your guitar or mic plays through the app. Use headphones: through speakers the
              sound feeds back into the mic or pickup.
 - In         which inputs of your interface to use, one by one (In 2 = input 2 only). One input
@@ -62,6 +64,33 @@ The bar under the top of the window:
 - i          about the app and its licence
 
 The app remembers its window, audio settings, sound and track between runs.
+
+The first time it starts, the app picks the audio setup with the lowest delay: your interface's
+own ASIO driver at 128 samples; without one, "Windows Audio (Low Latency Mode)" at its smallest
+buffer; otherwise Windows' default. It never changes a setup you have saved.
+
+
+SOUND CARD DELAY
+
+You hear yourself late by your sound card's input + output delay. Your friends hear you late by
+your input delay, the network and their own output delay. The driver you pick matters most:
+- Your interface's own ASIO driver (Focusrite, Behringer, Steinberg, ...): the lowest delay. Start
+  at 128 samples, then try 64.
+- No ASIO driver: "Windows Audio (Low Latency Mode)", and pick its SMALLEST buffer: it starts at
+  10 ms, which throws most of the gain away. Other apps (Discord, the browser) keep their sound.
+- "Windows Audio" (shared mode, the plain one) adds about 30 ms. DirectSound is worse.
+- "Windows Audio (Exclusive Mode)" is low too, but it takes the device: other apps on that
+  headset or interface go silent while Jam Sesh runs.
+- Generic ASIO drivers (ASIO4ALL, "FL Studio ASIO", "Generic Low Latency ASIO Driver", Realtek
+  ASIO) only after Low Latency Mode, and never when your interface has its own driver.
+- Use 48 kHz: Jam Sesh runs at 48 kHz, other rates are converted.
+- The Audio button's "Lowest delay" does the above for you: your interface's ASIO driver at 64
+  samples, else Low Latency Mode at its smallest buffer. Never exclusive mode.
+- Find your lowest buffer: watch "dropouts" under the list. None for a minute? Try the next
+  smaller buffer. Crackles or dropouts? Go one step up.
+- Many ASIO drivers work with one program at a time. If "Lowest delay" says the driver didn't
+  open, close the other program (a DAW) or use Low Latency Mode.
+- Laptops: plug in the charger and use the best-performance power mode.
 
 
 INSTALL THE PLUGIN
@@ -84,8 +113,9 @@ The installer does this for you. From the zip:
 PLAY YOUR GUITAR OR VOICE THROUGH THE PLUGIN
 
 Put Clod Scope on a mixer insert or track whose input is your audio interface, turn on input
-monitoring, then click the preset name at the top of the plugin and pick a preset. Use an ASIO
-driver for low delay. If notes are missed, set Tracking > Range to match your instrument; to play
+monitoring, then click the preset name at the top of the plugin and pick a preset. For low delay,
+pick your interface's own ASIO driver in FL Studio's Options > Audio settings (not "FL Studio
+ASIO" when your interface has its own driver) and a buffer of 64-128 samples. If notes are missed, set Tracking > Range to match your instrument; to play
 chords, set Tracking to Chord.
 
 
@@ -134,7 +164,8 @@ Far apart? Turn on one-bar mode: everyone hears everyone exactly one bar late, i
 
 For the lowest delay:
 - use a network cable instead of Wi-Fi
-- use ASIO with a small buffer (64-128 samples)
+- use your interface's ASIO driver with a small buffer (64-128 samples), or Windows Audio (Low
+  Latency Mode) at its smallest buffer; not plain "Windows Audio" (see SOUND CARD DELAY)
 - leave compression off when your connection can carry it (about 0.8 Mbit/s per player and
   channel); turn it on, or use raw-input mode, when it can't
 - close downloads and video streams while you play
