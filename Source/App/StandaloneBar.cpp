@@ -9,7 +9,9 @@
 
 namespace
 {
+   #if ! JUCE_MAC
     const char* const asioNotice = "ASIO is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries.";
+   #endif
     const char* const licenceNotice = "Copyright (C) 2026 Clod Codes. " CLOD_APP_NAME " is free software: you may share "
                                       "and change it under the GNU General Public License version 3. It comes with NO WARRANTY. "
                                       "The licence (LICENSE.txt) and the source code come with the download.";
@@ -218,15 +220,21 @@ namespace
         InfoView()
         {
             text << CLOD_APP_NAME " " << JucePlugin_VersionString << " - play together online, live\n\n"
+                #if JUCE_MAC
+                 << "Audio: pick your audio interface; Lowest delay sets 64 samples. Bluetooth headphones add a lot of delay.\n"
+                #else
                  << "Audio: pick your audio interface; its own ASIO driver gives the lowest delay (Lowest delay picks it).\n"
                  << "  An amber Audio button: Windows Audio or DirectSound, about 30 ms more delay.\n"
+                #endif
                  << "Input: plays your guitar or mic through " CLOD_APP_NAME ". Use headphones, or the speakers feed back.\n"
                  << "In: which inputs of your interface; one input sits in the middle, two can be mixed (a mic and a guitar).\n"
                  << "Tempo: type a BPM or tap it; the delays and one-bar mode follow it. In a sesh you follow the host.\n"
                  << "Track: load or drop a WAV, MP3, FLAC or OGG file to play along with; it streams to your friends.\n"
                  << "Record: saves what you hear to " << apppaths::shown (Recorder::recordingsFolder()) << ".\n\n"
-                 << licenceNotice << "\n\n"
-                 << asioNotice;
+                 << licenceNotice;
+           #if ! JUCE_MAC
+            text << "\n\n" << asioNotice;
+           #endif
             setSize (560, 310);
         }
 

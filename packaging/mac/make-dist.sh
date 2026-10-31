@@ -69,7 +69,7 @@ text "$root/Source/Resources/Fonts/NewRocker-OFL.txt" "$stage/Licenses/New Rocke
 # use it, and they're off), the ASIO SDK's common folder, and the test tools without their build folders
 sourceItems=(
     "CMakeLists.txt" "LICENSE.txt" "README.md" "build.bat" "package.bat" "install-vst3.ps1"
-    "Source" "packaging"
+    "Source" "packaging" ".github/workflows"
     "tools/agent-build.ps1" "tools/compile-one.ps1" "tools/snap" "tools/jam-test" "tools/latency-probe" "tools/icon"
     "tools/plugin-test/CMakeLists.txt" "tools/plugin-test/build.bat" "tools/plugin-test/main.cpp"
     "tools/plugin-test/capture.cpp"

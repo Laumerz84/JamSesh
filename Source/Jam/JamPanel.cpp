@@ -343,12 +343,20 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
                                "beat. Off: the host hears it at once and is ahead of everyone.";
         notes[oneBarNote].text = "For far-away friends: everyone hears everyone exactly one bar late, in time with the beat, "
                                  "instead of a little late and out of time. Needs a steady tempo.";
+       #if JUCE_MAC
+        const juce::String thisComputer = "this Mac";
+        const juce::String allowIt = "macOS asks whether Jam Sesh (or your DAW) may find devices on your local network, and "
+                                     "its firewall (if on) whether it may accept connections: allow both.";
+       #else
+        const juce::String thisComputer = "this PC";
+        const juce::String allowIt = "Allow Jam Sesh (or your DAW) in the Windows firewall when it asks.";
+       #endif
         notes[routerNote].text = "Over the internet the host's router must let friends in. When you host, Jam Sesh puts your "
                                  "internet address in the code (it asks a public STUN server, Google's or Cloudflare's, for it) "
                                  "and asks your router to forward UDP port " + juce::String (jam::defaultPort)
-                               + " (or the port you host on) to this PC (UPnP); the line under the code says whether it worked. "
-                                 "If not, forward the port in the router's settings, or let a friend host. Allow Jam Sesh (or "
-                                 "your DAW) in the Windows firewall when it asks.\nNo luck? Everyone installs a VPN such as "
+                               + " (or the port you host on) to " + thisComputer + " (UPnP); the line under the code says "
+                                 "whether it worked. If not, forward the port in the router's settings, or let a friend host. "
+                               + allowIt + "\nNo luck? Everyone installs a VPN such as "
                                  "Tailscale or ZeroTier and joins the same network; the host then shares a code with the VPN "
                                  "address. Same house or same Wi-Fi: nothing to set up.";
 
@@ -919,7 +927,7 @@ HelpList JamPanel::helpEntries()
           "Sent to everyone when you host or join (up to 24 characters). Remembered on this computer for the app and every "
           "plugin instance, in " + apppaths::shown (jamui::Settings::location()) + ". Changing it during a sesh takes effect "
           "the next time you join.",
-          "Empty uses your Windows user name." },
+          "Empty uses your user name on this computer." },
         { "jam.port", "Host port",
           "The UDP port your computer listens on when you host.",
           "Any port from 1024 to 65535; default " + port + ". Friends never type it: it is part of the sesh code. "

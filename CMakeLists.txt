@@ -11,7 +11,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # (.github/workflows/build-mac.yml builds it that way; packaging/mac/make-dist.sh packages it)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Oldest macOS the app and the plugins run on")
 
-project(ClodScope VERSION 1.3.0)
+project(ClodScope VERSION 1.4.0)
 
 add_subdirectory(JUCE)
 

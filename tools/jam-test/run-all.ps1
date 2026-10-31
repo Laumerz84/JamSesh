@@ -17,11 +17,13 @@ if ($OutDir -eq "") { $OutDir = Join-Path $root ("build-test\e2e-" + (Get-Date -
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $summary = Join-Path $OutDir "summary.txt"
 $lines = New-Object System.Collections.Generic.List[string]
-$lines.Add("Clod Scope end-to-end check, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), $OutDir")
+$lines.Add("Jam Sesh end-to-end check, $(Get-Date -Format 'yyyy-MM-dd HH:mm'), $OutDir")
 
-# never all interfaces (Windows Firewall would ask); snapshots never save the owner's theme
+# never all interfaces (Windows Firewall would ask); snapshots never save the owner's theme, and every data
+# folder (settings, presets, recordings) is a test folder, never the owner's (Source/AppPaths.h)
 $env:CLOD_JAM_BIND = "127.0.0.1"
 if (-not $env:CLOD_THEME) { $env:CLOD_THEME = "0" }
+if (-not $env:CLOD_DATA_DIR) { $env:CLOD_DATA_DIR = Join-Path $OutDir "data" }
 $env:CLOD_JAM_NETSIM = ""
 
 $build = Join-Path $root "tools\agent-build.ps1"
