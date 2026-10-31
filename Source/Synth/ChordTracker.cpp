@@ -186,6 +186,7 @@ void ChordTracker::onset() noexcept
 
 void ChordTracker::process (const float* x, int n) noexcept
 {
+    const int preRoll = (int) (0.008 * srD);   // as in analyse(): an attack's frame starts 8 ms before the onset
     for (int i = 0; i < n; ++i)
     {
         const float s = x[i];
@@ -201,7 +202,10 @@ void ChordTracker::process (const float* x, int n) noexcept
             ringPos = (ringPos + 1) & (ringLen - 1);
             if (sinceOnset < ringLen)
                 ++sinceOnset;
-            if (++hopCounter >= hop)
+            // an attack's chord is decided on the very sample its frame is complete, not on the next
+            // frame of the hop grid (that waited 0-5.3 ms); the grid restarts there
+            const bool decideNow = decisionPending && sinceOnset + preRoll == decideLen;
+            if (++hopCounter >= hop || decideNow)
             {
                 hopCounter = 0;
                 if (enabled)
