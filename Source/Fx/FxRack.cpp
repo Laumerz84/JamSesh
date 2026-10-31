@@ -272,14 +272,29 @@ void FxRack::Impl::processChunk (float* const* ch, int numCh, int n, const Trans
 
     // Modules without tails: crossfade between the (time-aligned) dry signal and the module output.
     // The parallel mix of Amp and Comp rides on the same crossfade.
+    // App (liveLatency): a module with latency (bypass != nullptr) adds no delay while it is off. When it
+    // comes on, the output fades from the undelayed input u to the time-aligned result (slot.align 0 -> 1,
+    // alongside the wet fade), and back when it goes off, so the timing change never clicks.
+    float* u[fx::maxCh] = { dry.getWritePointer (fx::maxCh), dry.getWritePointer (fx::maxCh + 1) };
     auto runFaded = [&] (Module m, auto&& resetFn, auto&& processFn, fx::FixedDelay* bypass)
     {
         auto& s = slots[(size_t) m];
         const bool on = fx::get (s.on) > 0.5f;
+        const bool live = liveLatency && bypass != nullptr;
         if (! s.active && ! on)
         {
-            if (bypass != nullptr)
+            if (live)
+            {
+                // the app adds no delay here, but keeps the delay's history current (on a copy) so the
+                // module can come in time-aligned
+                for (int c = 0; c < numCh; ++c)
+                    juce::FloatVectorOperations::copy (d[c], ch[c], n);
+                bypass->process (d, numCh, n);
+            }
+            else if (bypass != nullptr)
+            {
                 bypass->process (ch, numCh, n);
+            }
             peak[(size_t) m].store (0.0f, std::memory_order_relaxed);
             return;
         }
@@ -288,12 +303,30 @@ void FxRack::Impl::processChunk (float* const* ch, int numCh, int n, const Trans
             resetFn();
             s.active = true;
             // the limiter is a safety stage: it takes hold at once instead of fading in (it can only
-            // lower peaks, so switching it on abruptly cannot click)
+            // lower peaks, so switching it on abruptly cannot click; in the app the align fade below
+            // covers the timing step)
             s.wet = (m == FxRack::limiter && on) ? 1.0f : 0.0f;
+            if (live)
+                s.align = 0.0f;
+            if (m == FxRack::limiter && s.wet >= 1.0f && bypass != nullptr && bypass->len > 0)
+            {
+                // feed the limiter the samples its bypass delay still holds (oldest first), so its own
+                // look-ahead delay holds the same history: taking hold at once then leaves no gap
+                for (int done = 0; done < bypass->len;)
+                {
+                    const int k = std::min (bypass->len - done, maxBlock);
+                    for (int c = 0; c < numCh; ++c)
+                        for (int i = 0; i < k; ++i)
+                            d[c][i] = bypass->buf[c][(size_t) ((bypass->pos + done + i) % bypass->len)];
+                    this->limiter.process (d, numCh, k);
+                    done += k;
+                }
+            }
         }
 
         const float target = on ? (s.mix != nullptr ? juce::jlimit (0.0f, 1.0f, fx::get (s.mix) * 0.01f) : 1.0f) : 0.0f;
         const bool steady = s.wet == target && target >= 1.0f;
+        const bool aligning = live && (! on || s.align < 1.0f);
         if (steady && bypass == nullptr)
         {
             processFn();
@@ -301,6 +334,9 @@ void FxRack::Impl::processChunk (float* const* ch, int numCh, int n, const Trans
             return;
         }
 
+        if (aligning)
+            for (int c = 0; c < numCh; ++c)
+                juce::FloatVectorOperations::copy (u[c], ch[c], n);
         for (int c = 0; c < numCh; ++c)
             juce::FloatVectorOperations::copy (d[c], ch[c], n);
         if (bypass != nullptr)
@@ -319,7 +355,20 @@ void FxRack::Impl::processChunk (float* const* ch, int numCh, int n, const Trans
             }
             s.wet = w;
         }
-        if (! on && s.wet <= 0.0f)
+        if (aligning)
+        {
+            const float aTarget = on ? 1.0f : 0.0f;
+            float a = s.align;
+            for (int i = 0; i < n; ++i)
+            {
+                if (a < aTarget)      a = std::min (aTarget, a + fadeStep);
+                else if (a > aTarget) a = std::max (aTarget, a - fadeStep);
+                for (int c = 0; c < numCh; ++c)
+                    ch[c][i] = u[c][i] + a * (ch[c][i] - u[c][i]);
+            }
+            s.align = a;
+        }
+        if (! on && s.wet <= 0.0f && (! live || s.align <= 0.0f))
             s.active = false;
         measure (m);
     };
@@ -363,7 +412,74 @@ void FxRack::Impl::processChunk (float* const* ch, int numCh, int n, const Trans
 }
 
 //==============================================================================
-FxRack::FxRack (juce::AudioProcessorValueTreeState& s) : impl (std::make_unique<Impl> (s)) {}
+// The global dry path's delay: a ring that is always written, read at the current latency. When the
+// latency changes (app: a module with latency switched on or off) it crossfades from the old read tap
+// to the new one, so the dry signal never jumps.
+struct FxRack::DryAlign
+{
+    juce::AudioBuffer<float> ring;
+    int mask = 0, pos = 0, cur = 0, prev = 0;
+    float fade = 1.0f, step = 0.001f;
+
+    void prepare (int maxLatency, double sampleRate, int latency)
+    {
+        ring.setSize (fx::maxCh, juce::nextPowerOfTwo (juce::jmax (1, maxLatency) + 1));
+        mask = ring.getNumSamples() - 1;
+        step = (float) (1.0 / (0.01 * sampleRate));   // 10 ms
+        reset (latency);
+    }
+
+    void reset (int latency) noexcept
+    {
+        ring.clear();
+        pos = 0;
+        cur = prev = juce::jlimit (0, mask, latency);
+        fade = 1.0f;
+    }
+
+    void process (float* const* ch, int numCh, int n, int target) noexcept
+    {
+        target = juce::jlimit (0, mask, target);
+        if (fade >= 1.0f && target != cur)   // a change during a fade waits for it to finish
+        {
+            prev = cur;
+            cur = target;
+            fade = 0.0f;
+        }
+        float f = fade;
+        for (int c = 0; c < numCh; ++c)
+        {
+            float* r = ring.getWritePointer (c);
+            float* x = ch[c];
+            int p = pos;
+            f = fade;
+            for (int i = 0; i < n; ++i)
+            {
+                r[p] = x[i];
+                const float a = r[(p - cur) & mask];
+                if (f < 1.0f)
+                {
+                    const float b = r[(p - prev) & mask];
+                    x[i] = b + f * (a - b);
+                    f = std::min (1.0f, f + step);
+                }
+                else
+                {
+                    x[i] = a;
+                }
+                p = (p + 1) & mask;
+            }
+        }
+        if (numCh > 0)
+        {
+            pos = (pos + n) & mask;
+            fade = f;
+        }
+    }
+};
+
+FxRack::FxRack (juce::AudioProcessorValueTreeState& s)
+    : impl (std::make_unique<Impl> (s)), dryAlign (std::make_unique<DryAlign>()) {}
 FxRack::~FxRack() = default;
 
 void FxRack::prepare (double sampleRate, int maxBlockSize, int numChannels)
@@ -375,7 +491,7 @@ void FxRack::prepare (double sampleRate, int maxBlockSize, int numChannels)
     m.sampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     m.maxBlock = juce::jmax (1, maxBlockSize);
     m.channels = juce::jlimit (1, fx::maxCh, numChannels);
-    m.dry.setSize (fx::maxCh, m.maxBlock);
+    m.dry.setSize (2 * fx::maxCh, m.maxBlock);   // [0, maxCh): time-aligned dry, [maxCh, 2 maxCh): undelayed (app)
     m.dry.clear();
 
     m.amp.prepare (m.sampleRate, m.maxBlock, m.channels);
@@ -397,7 +513,9 @@ void FxRack::prepare (double sampleRate, int maxBlockSize, int numChannels)
     {
         s.active = false;
         s.wet = 0.0f;
+        s.align = m.liveLatency ? 0.0f : 1.0f;
     }
+    dryAlign->prepare (m.latAmp + m.latLim, m.sampleRate, latencySamples());
     for (auto& p : m.peak)
         p.store (0.0f);
 
@@ -425,12 +543,35 @@ void FxRack::reset()
         const bool on = s.on != nullptr && fx::get (s.on) > 0.5f;
         s.active = on;
         s.wet = on ? (s.mix != nullptr ? juce::jlimit (0.0f, 1.0f, fx::get (s.mix) * 0.01f) : 1.0f) : 0.0f;
+        s.align = (on || ! m.liveLatency) ? 1.0f : 0.0f;
     }
+    dryAlign->reset (latencySamples());
+}
+
+void FxRack::setLiveLatency (bool live) noexcept
+{
+    impl->liveLatency = live;
+}
+
+int FxRack::maxLatencySamples() const noexcept
+{
+    return impl->latAmp + impl->latLim;
 }
 
 int FxRack::latencySamples() const noexcept
 {
-    return impl->latAmp + impl->latLim;
+    auto& m = *impl;
+    if (! m.liveLatency)
+        return m.latAmp + m.latLim;
+    // an active module is (fading) in the path; the dry path's own 10 ms crossfade follows it
+    return (m.slots[FxRack::amp].active ? m.latAmp : 0) + (m.slots[FxRack::limiter].active ? m.latLim : 0);
+}
+
+void FxRack::alignDry (juce::AudioBuffer<float>& buffer, int numChannels, int numSamples) noexcept
+{
+    const int numCh = juce::jlimit (0, juce::jmin (fx::maxCh, buffer.getNumChannels()), numChannels);
+    float* ch[fx::maxCh] = { numCh > 0 ? buffer.getWritePointer (0) : nullptr, numCh > 1 ? buffer.getWritePointer (1) : nullptr };
+    dryAlign->process (ch, numCh, juce::jmin (numSamples, buffer.getNumSamples()), latencySamples());
 }
 
 void FxRack::Impl::processBuffer (juce::AudioBuffer<float>& buffer, int numChannels, const Transport& t,

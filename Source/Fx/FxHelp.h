@@ -18,7 +18,8 @@ inline HelpList helpList()
     // ---------------- module switches ----------------
     const char* switchMap = "Off -> the module is bypassed and costs (almost) no CPU. Switching crossfades over 20 ms, so it never clicks.";
     add ("fxAmpOn", "Amp on/off", "Switches the amp simulator in or out of the chain.", switchMap,
-         "The amp adds a fixed 4x-oversampling latency even when off, so the timing never jumps.");
+         "In the plugin the amp's small 4x-oversampling latency (0.1 ms) stays even when off, so the timing never jumps; "
+         "in the Jam Sesh app it is only there while the amp is on.");
     add ("fxCabOn", "Cab on/off", "Switches the speaker cabinet simulation in or out.", switchMap,
          "Almost every distorted guitar sound needs a cab after the amp - without it, distortion sounds fizzy.");
     add ("fxEqOn", "EQ on/off", "Switches the 6-band EQ in or out.", switchMap);
@@ -30,7 +31,8 @@ inline HelpList helpList()
     add ("fxRevOn", "Reverb on/off", "Switches the reverb in or out.",
          "Off -> no new sound enters the reverb (20 ms fade), but the tail rings out naturally; the module then sleeps once it falls below -100 dB.");
     add ("fxLimOn", "Limiter on/off", "Switches the final brickwall limiter in or out.", switchMap,
-         "The 1.5 ms look-ahead latency is always reported to the host, so switching never shifts timing.");
+         "In the plugin the 0.75 ms look-ahead latency is always reported to the host, so switching never shifts timing; "
+         "in the Jam Sesh app it is only there while the limiter is on.");
 
     // ---------------- Amp ----------------
     add ("fxAmpModel", "Amp model", "The amp character: how many gain stages, where it clips and how it is voiced.",
@@ -206,7 +208,7 @@ inline HelpList helpList()
     add ("fxLimInput", "Input", "Drive into the limiter for loudness.", "0..+24 dB of gain before limiting.",
          "Watch the GR meter: more than ~6 dB of constant reduction starts to flatten the sound.");
     add ("fxLimCeiling", "Ceiling", "Maximum output peak.",
-         "-12..0 dBFS. Look-ahead (1.5 ms) brings the gain down smoothly before each peak, then a hard clip at the ceiling catches rounding errors. Sample peaks, not true peaks: leave -0.3 dB or lower.");
+         "-12..0 dBFS. Look-ahead (0.75 ms) brings the gain down smoothly before each peak, then a hard clip at the ceiling catches rounding errors. Sample peaks, not true peaks: leave -0.3 dB or lower.");
     add ("fxLimRelease", "Release", "How fast the gain recovers after a peak.", "10..1000 ms time constant.",
          "Short = louder but can distort bass; 100-200 ms is transparent.");
     add ("fx.limMeter", "Limiter meter", "Gain reduction of the limiter.", "Bar: 0..-24 dB of gain reduction right now.");

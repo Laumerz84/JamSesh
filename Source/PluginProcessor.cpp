@@ -156,17 +156,23 @@ void ClodScopeProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     hpf.setType (juce::dsp::StateVariableTPTFilterType::highpass);
     lpf.setType (juce::dsp::StateVariableTPTFilterType::lowpass);
 
-    dryBuffer.setSize (2, samplesPerBlock);
+    // room for blocks bigger than announced (some hosts send them), so processBlock never allocates for them
+    const int roomy = juce::jmax (samplesPerBlock, 8192);
+    dryBuffer.setSize (2, roomy);
+    dryBuffer.setSize (2, samplesPerBlock, false, false, true);
     const int channels = juce::jmax (1, getTotalNumOutputChannels());
     soundEq.prepare (sampleRate, samplesPerBlock, channels);
     synth.prepare (sampleRate, samplesPerBlock, channels);
+
+    // The app (and its jam replicas): no host compensates latency, so the rack only delays what is switched on.
+    // The plugin reports one fixed latency, as hosts expect.
+    const bool app = wrapperType == wrapperType_Standalone
+                  || juce::PluginHostType::getPluginLoadedAs() == wrapperType_Standalone;
+    fx.setLiveLatency (app);
     fx.prepare (sampleRate, samplesPerBlock, channels);
 
-    latency = juce::jmax (0, fx.latencySamples());
+    latency = juce::jmax (0, fx.latencySamples());   // the dry path of the global mix follows it (FxRack::alignDry)
     setLatencySamples (latency);
-    dryDelay.setSize (2, juce::jmax (1, latency));
-    dryDelay.clear();
-    dryDelayPos = 0;
     doubleSlit.prepare ({ sampleRate, (juce::uint32) samplesPerBlock,
                           (juce::uint32) juce::jmax (1, getTotalNumOutputChannels()) });
 
@@ -188,7 +194,8 @@ void ClodScopeProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     holdSample[0] = holdSample[1] = 0.0f;
     holdCounter[0] = holdCounter[1] = 0;
 
-    jamRaw.setSize (2, samplesPerBlock);
+    jamRaw.setSize (2, roomy);
+    jamRaw.setSize (2, samplesPerBlock, false, false, true);
     if (jamPort != nullptr)
         jamPort->prepare (sampleRate, samplesPerBlock);
 }
@@ -215,28 +222,20 @@ float ClodScopeProcessor::shape (float x, int mode, float k) const noexcept
 void ClodScopeProcessor::reset()
 {
     synth.reset();
-    fx.reset();
-    dryDelay.clear();
-    dryDelayPos = 0;
+    fx.reset();   // also clears the dry path's delay
 }
 
 void ClodScopeProcessor::delayDry (int numChannels, int numSamples) noexcept
 {
-    if (latency <= 0)
-        return;
-    int pos = dryDelayPos;
-    for (int i = 0; i < numSamples; ++i)
+    // the rack owns the dry delay: in the app its length follows the modules that are on, with a crossfade
+    fx.alignDry (dryBuffer, numChannels, numSamples);
+
+    const int now = fx.latencySamples();
+    if (now != latency)   // only in the app (the plugin's latency is fixed); no host listens there
     {
-        for (int ch = 0; ch < numChannels; ++ch)
-        {
-            auto* d = dryDelay.getWritePointer (ch);
-            const float delayed = d[pos];
-            d[pos] = dryBuffer.getSample (ch, i);
-            dryBuffer.setSample (ch, i, delayed);
-        }
-        pos = (pos + 1) % latency;
+        latency = now;
+        setLatencySamples (now);
     }
-    dryDelayPos = pos;
 }
 
 void ClodScopeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
