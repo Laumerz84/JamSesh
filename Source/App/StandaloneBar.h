@@ -27,6 +27,8 @@ public:
     static std::unique_ptr<juce::Component> createInputPicker (const juce::StringArray& inputNames, int first, int second,
                                                                bool mixed, InputChange onChange);
 
+    void refreshNow();                       // the controls from the app's state now (the self-test; else a 10 Hz timer)
+
     void paint (juce::Graphics&) override;
     void resized() override;
     void lookAndFeelChanged() override;

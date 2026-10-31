@@ -1,5 +1,6 @@
 #include "StandaloneBar.h"
 #include "AppServices.h"
+#include "LowDelay.h"
 #include "../PluginProcessor.h"
 #include "../UI/Theme.h"
 #include "../Jam/JamSession.h"
@@ -26,15 +27,26 @@ namespace
         return c.getTopLevelComponent();
     }
 
-    // Audio interface settings: JUCE's device selector inside a call-out in the editor
-    class AudioSettingsView : public juce::Component
+    // Audio interface settings: JUCE's device selector inside a call-out in the editor, a "Lowest delay" button
+    // (LowDelay.h: a real ASIO driver at 64 samples, else Windows Audio (Low Latency Mode) at its smallest
+    // buffer) and a live readout of the driver's own latency figures, dropouts and load
+    class AudioSettingsView : public juce::Component,
+                              private juce::Timer
     {
     public:
-        AudioSettingsView (juce::AudioDeviceManager& dm, std::function<void()> closed)
-            : selector (dm, 0, 2, 0, 2, true, false, false, false), onClosed (std::move (closed))   // inputs one by one
+        AudioSettingsView (AppServices& s, std::function<void()> closed)
+            : services (s), dm (*s.deviceManager),
+              selector (dm, 0, 2, 0, 2, true, false, false, false), onClosed (std::move (closed))   // inputs one by one
         {
             addAndMakeVisible (selector);
-            setSize (540, 440);
+            lowestBtn.setTooltip ("Your interface's own ASIO driver at 64 samples; without one, Windows Audio (Low Latency Mode) "
+                                  "at its smallest buffer. Never exclusive mode. Crackles? Raise the buffer a step.");
+            lowestBtn.onClick = [this] { lowestDelay(); };
+            Theme::setAccent (lowestBtn, Accent::jam);
+            addAndMakeVisible (lowestBtn);
+            setSize (560, 520);
+            timerCallback();
+            startTimerHz (4);
         }
 
         ~AudioSettingsView() override
@@ -48,20 +60,73 @@ namespace
             g.setColour (Palette::text);
             g.setFont (Theme::font (14.0f, true));
             g.drawText ("Audio settings", getLocalBounds().removeFromTop (28).reduced (8, 0), juce::Justification::centredLeft);
-            g.setColour (Palette::dim);
+
             g.setFont (Theme::font (11.5f));
-            g.drawFittedText ("Lowest delay: an ASIO driver and a buffer of 64-256 samples. Crackles? Raise the buffer.",
-                              getLocalBounds().removeFromBottom (24).reduced (8, 0), juce::Justification::centredLeft, 1);
+            g.setColour (Palette::text);
+            g.drawFittedText (readoutText, readoutArea, juce::Justification::centredLeft, 2);
+            g.setColour (result.isNotEmpty() ? (resultOk ? Palette::green : Palette::pink) : Palette::dim);
+            g.drawFittedText (result.isNotEmpty() ? result
+                                                  : juce::String ("The delay figures are the driver's own (input + output). No dropouts for a "
+                                                                  "minute? Try the next smaller buffer. Crackles? Go one up."),
+                              hintArea, juce::Justification::centredLeft, 2);
         }
 
         void resized() override
         {
-            selector.setBounds (getLocalBounds().withTrimmedTop (28).withTrimmedBottom (24));
+            auto r = getLocalBounds();
+            r.removeFromTop (28);
+            hintArea = r.removeFromBottom (34).reduced (8, 0);
+            auto row = r.removeFromBottom (40).reduced (8, 4);
+            lowestBtn.setBounds (row.removeFromLeft (104));
+            row.removeFromLeft (10);
+            readoutArea = row;
+            selector.setBounds (r);
         }
 
     private:
+        void timerCallback() override
+        {
+            auto* d = dm.getCurrentAudioDevice();
+            const bool open = d != nullptr && d->isOpen();
+            const double now = juce::Time::getMillisecondCounterHiRes();
+            if (open)
+                dropouts.add (now, dm.getXRunCount());
+            else
+                dropouts.samples.clear();
+            const auto text = open ? lowdelay::readout (d->getInputLatencyInSamples(), d->getOutputLatencyInSamples(),
+                                                        d->getCurrentSampleRate(), dropouts.dropouts(), dropouts.seconds(),
+                                                        dm.getCpuUsage())
+                                   : lowdelay::readout (0, 0, 0.0, 0, 0.0, 0.0);
+            if (text != readoutText)
+            {
+                readoutText = text;
+                repaint (readoutArea);
+            }
+        }
+
+        void lowestDelay()
+        {
+            juce::MouseCursor::showWaitCursor();
+            const auto r = lowdelay::apply (dm, services.inputsNeeded, services.outputsNeeded, 64, true);
+            juce::MouseCursor::hideWaitCursor();
+            resultOk = r.changed;
+            result = r.text.isNotEmpty() ? r.text : juce::String ("Nothing lower to pick here.");
+            dropouts.samples.clear();
+            if (services.saveAudioState)
+                services.saveAudioState();
+            timerCallback();
+            repaint();
+        }
+
+        AppServices& services;
+        juce::AudioDeviceManager& dm;
         juce::AudioDeviceSelectorComponent selector;
+        juce::TextButton lowestBtn { "Lowest delay" };
         std::function<void()> onClosed;
+        lowdelay::DropoutWindow dropouts;
+        juce::String readoutText, result;
+        bool resultOk = false;
+        juce::Rectangle<int> readoutArea, hintArea;
     };
 
     // The input picker (the bar's In button): one or two of the interface's inputs, and how two reach the
@@ -148,7 +213,8 @@ namespace
         InfoView()
         {
             text << CLOD_APP_NAME " " << JucePlugin_VersionString << " - the Clod Scope app\n\n"
-                 << "Audio: pick your audio interface; ASIO gives the lowest delay.\n"
+                 << "Audio: pick your audio interface; its own ASIO driver gives the lowest delay (Lowest delay picks it).\n"
+                 << "  An amber Audio button: Windows Audio or DirectSound, about 30 ms more delay.\n"
                  << "Input: plays your guitar or mic through Clod Scope. Use headphones, or the speakers feed back.\n"
                  << "In: which inputs of your interface; one input sits in the middle, two can be mixed (a mic and a guitar).\n"
                  << "Tempo: type a BPM or tap it; the delays and one-bar mode follow it. In a Jam Sesh you follow the host.\n"
@@ -156,7 +222,7 @@ namespace
                  << "Record: saves what you hear to Documents\\Clod Scope\\Recordings.\n\n"
                  << licenceNotice << "\n\n"
                  << asioNotice;
-            setSize (560, 290);
+            setSize (560, 310);
         }
 
         void paint (juce::Graphics& g) override
@@ -181,7 +247,7 @@ struct StandaloneBar::Impl : private juce::Timer,
                                                                  &playBtn, &loopBtn, &volume, &recBtn, &infoBtn })
             bar.addAndMakeVisible (c);
 
-        audioBtn.setTooltip ("Audio interface, inputs, outputs, sample rate and buffer size (ASIO for the lowest delay)");
+        audioBtn.setTooltip (audioTip);
         audioBtn.onClick = [this] { showAudioSettings(); };
 
         inputBtn.setTooltip ("Play your input (guitar, mic) through Clod Scope. Use headphones to avoid feedback.");
@@ -264,6 +330,12 @@ struct StandaloneBar::Impl : private juce::Timer,
             if (services->deviceManager != nullptr)
                 services->deviceManager->addChangeListener (this);
             applyRouting();
+            if (services->startupNote.isNotEmpty())   // e.g. the first run's device pick
+            {
+                message = services->startupNote;
+                messageUntil = juce::Time::getMillisecondCounter() + 12000;
+                services->startupNote.clear();
+            }
         }
         else
         {
@@ -292,7 +364,7 @@ struct StandaloneBar::Impl : private juce::Timer,
         if (services == nullptr || services->deviceManager == nullptr)
             return;
         auto save = services->saveAudioState;
-        auto view = std::make_unique<AudioSettingsView> (*services->deviceManager, [save] { if (save) save(); });
+        auto view = std::make_unique<AudioSettingsView> (*services, [save] { if (save) save(); });
         auto* host = popupHost (bar);
         juce::CallOutBox::launchAsynchronously (std::move (view), host->getLocalArea (&audioBtn, audioBtn.getLocalBounds()), host);
     }
@@ -457,6 +529,15 @@ struct StandaloneBar::Impl : private juce::Timer,
     void refresh()
     {
         const bool muted = services == nullptr || (bool) services->inputMuted.getValue();
+        // amber while the device type adds a lot of delay (Windows Audio shared mode, DirectSound)
+        const auto warning = services != nullptr ? lowdelay::warningFor (services->currentDeviceType()) : juce::String();
+        if (warning != audioWarning)
+        {
+            audioWarning = warning;
+            audioBtn.setToggleState (warning.isNotEmpty(), juce::dontSendNotification);
+            audioBtn.setTooltip (warning.isNotEmpty() ? warning : juce::String (audioTip));
+        }
+
         inputBtn.setButtonText (muted ? "Input off" : "Input on");
         inputBtn.setToggleState (! muted, juce::dontSendNotification);
 
@@ -522,6 +603,7 @@ struct StandaloneBar::Impl : private juce::Timer,
 
     void applyColours()
     {
+        Theme::setAccent (audioBtn, Palette::amber);   // lit only while warning
         Theme::setAccent (inputBtn, Accent::input);
         Theme::setAccent (inBtn, Accent::input);
         Theme::setAccent (playBtn, Accent::jam);
@@ -588,7 +670,7 @@ struct StandaloneBar::Impl : private juce::Timer,
         g.setFont (Theme::font (12.0f));
         if (message.isNotEmpty())
         {
-            g.setColour (message.startsWith ("Saved") ? Palette::green : Palette::pink);
+            g.setColour (message.startsWith ("Saved") || message.startsWith ("Audio:") ? Palette::green : Palette::pink);
             g.drawFittedText (message, trackInfoArea, juce::Justification::centredLeft, 1);
         }
         else if (services != nullptr && services->player.hasFile())
@@ -629,8 +711,9 @@ struct StandaloneBar::Impl : private juce::Timer,
     TapTempo tapper;
 
     juce::Rectangle<int> bpmLabelArea, trackLabelArea, trackInfoArea, recTimeArea;
-    juce::String message;
+    juce::String message, audioWarning;
     juce::uint32 messageUntil = 0;
+    static constexpr const char* audioTip = "Audio interface, inputs, outputs, sample rate and buffer size (ASIO for the lowest delay)";
     bool followingHost = false, dragOver = false;
 };
 
@@ -648,6 +731,7 @@ bool StandaloneBar::isStandaloneApp()
     return juce::PluginHostType::getPluginLoadedAs() == juce::AudioProcessor::wrapperType_Standalone;
 }
 
+void StandaloneBar::refreshNow()               { impl->refresh(); }
 void StandaloneBar::paint (juce::Graphics& g)  { impl->paint (g); }
 void StandaloneBar::resized()                  { impl->layout(); }
 

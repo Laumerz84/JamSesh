@@ -11,6 +11,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #include "AppServices.h"
+#include "LowDelay.h"
 #include "StandaloneBar.h"
 #include "../PluginProcessor.h"
 #include "../UI/Theme.h"
@@ -18,6 +19,38 @@
 
 namespace
 {
+    //==============================================================================
+    // Windows power throttling (EcoQoS) off for this process: Windows 11 may otherwise run a background or
+    // minimized app on slow cores and ignore its 1 ms timer request, and the audio callback misses its deadline.
+    // The app only, never the plugin (inside a host the process is the host's). Each part on its own: the
+    // timer-resolution part needs Windows 11 22H2, the execution-speed part Windows 10 1709; older Windows just
+    // says no. Returns bit 0 = execution speed, bit 1 = timer resolution, for the self-test's log.
+    int turnOffPowerThrottling()
+    {
+       #if JUCE_WINDOWS
+        struct ThrottlingState { unsigned long version, controlMask, stateMask; };   // PROCESS_POWER_THROTTLING_STATE
+        using SetInfo = int (__stdcall*) (void*, int, void*, unsigned long);         // SetProcessInformation
+        constexpr int processPowerThrottling = 4;                                     // PROCESS_INFORMATION_CLASS
+        constexpr unsigned long executionSpeed = 0x1, ignoreTimerResolution = 0x4;
+
+        static juce::DynamicLibrary kernel ("kernel32.dll");
+        auto setInfo = (SetInfo) kernel.getFunction ("SetProcessInformation");
+        if (setInfo == nullptr)
+            return 0;
+        void* const thisProcess = reinterpret_cast<void*> ((juce::pointer_sized_int) -1);   // GetCurrentProcess()
+        int done = 0;
+        for (auto [mask, bit] : { std::pair<unsigned long, int> { executionSpeed, 1 }, { ignoreTimerResolution, 2 } })
+        {
+            ThrottlingState st { 1, mask, 0 };   // version 1; control this part; state 0 = not throttled
+            if (setInfo (thisProcess, processPowerThrottling, &st, (unsigned long) sizeof (st)) != 0)
+                done |= bit;
+        }
+        return done;
+       #else
+        return 0;
+       #endif
+    }
+
     //==============================================================================
     class MainWindow final : public juce::DocumentWindow
     {
@@ -444,6 +477,90 @@ namespace
                 line ("recordings go to " + Recorder::newRecordingFile().getFullPathName() + " (not created)");
             }
 
+            // ---- 4b. the lowest-delay device choice (LowDelay.h), with made-up device lists: no device is opened ----
+            {
+                using lowdelay::Choice;
+                const juce::StringArray speakers { "Speakers (Realtek(R) Audio)", "Headphones (USB Audio)" },
+                                        mics { "Microphone (Realtek(R) Audio)", "Microphone (USB Audio)" };
+                auto types = [&] (juce::StringArray asio, bool lowLatency)
+                {
+                    juce::Array<lowdelay::TypeInfo> t;
+                    t.add ({ "Windows Audio", speakers, mics, 0, 0 });
+                    t.add ({ "Windows Audio (Exclusive Mode)", speakers, mics, 0, 0 });
+                    if (lowLatency)
+                        t.add ({ "Windows Audio (Low Latency Mode)", speakers, mics, 1, 1 });
+                    t.add ({ "DirectSound", speakers, mics, 0, 0 });
+                    if (! asio.isEmpty())
+                        t.add ({ "ASIO", asio, asio, 0, 0 });
+                    return t;
+                };
+                const juce::StringArray wrappers { "FL Studio ASIO", "ASIO4ALL v2", "Generic Low Latency ASIO Driver", "Realtek ASIO" };
+                auto withReal = wrappers;
+                withReal.add ("Focusrite USB ASIO");
+                withReal.add ("UMC ASIO Driver");
+                const lowdelay::Current shared { "Windows Audio", "Speakers (Realtek(R) Audio)", "Microphone (Realtek(R) Audio)" };
+
+                const auto a = lowdelay::choose (types (withReal, true), shared, 128);
+                check (a.kind == Choice::Kind::asio && a.type == "ASIO" && a.output == "Focusrite USB ASIO" && a.input == a.output
+                           && a.bufferTarget == 128,
+                       "first run: the first real ASIO driver (wrappers skipped) at 128 -> " + a.output);
+                const auto b = lowdelay::choose (types (withReal, true), { "ASIO", "UMC ASIO Driver", "UMC ASIO Driver" }, 64);
+                check (b.output == "UMC ASIO Driver" && b.bufferTarget == 64, "Lowest delay keeps the real ASIO driver in use, aims for 64");
+                const auto c = lowdelay::choose (types (wrappers, true), shared, 128);
+                check (c.kind == Choice::Kind::lowLatencyMode && c.type == "Windows Audio (Low Latency Mode)"
+                           && c.output == shared.output && c.input == shared.input && c.bufferTarget == 0,
+                       "only wrappers: Low Latency Mode on the same devices, smallest buffer");
+                const auto d = lowdelay::choose (types (wrappers, true), {}, 128);
+                check (d.output == "Headphones (USB Audio)" && d.input == "Microphone (USB Audio)",
+                       "Low Latency Mode with nothing open: Windows' default devices");
+                const auto e = lowdelay::choose (types ({}, false), shared, 128);
+                check (e.kind == Choice::Kind::keep && e.type.isEmpty(), "no ASIO and no Low Latency Mode: keep today's default");
+                bool exclusive = false;
+                for (auto& list : { withReal, wrappers, juce::StringArray() })
+                    for (bool ll : { true, false })
+                        for (auto& cand : lowdelay::candidates (types (list, ll), shared, 128))
+                            exclusive = exclusive || cand.type.contains ("Exclusive");
+                check (! exclusive, "never exclusive mode");
+                const auto order = lowdelay::candidates (types (withReal, true), shared, 128);
+                check (order.size() == 2 && order[0].kind == Choice::Kind::asio && order[1].kind == Choice::Kind::lowLatencyMode,
+                       "fallback order: ASIO, then Low Latency Mode (if the driver is busy)");
+
+                check (lowdelay::pickBuffer ({ 32, 64, 128, 256 }, 128) == 128 && lowdelay::pickBuffer ({ 32, 64, 128, 256 }, 64) == 64
+                           && lowdelay::pickBuffer ({ 96, 192, 288 }, 128) == 192 && lowdelay::pickBuffer ({ 16, 32 }, 64) == 32
+                           && lowdelay::pickBuffer ({ 480, 144, 192, 240 }, 0) == 144 && lowdelay::pickBuffer ({}, 128) == 0,
+                       "buffer: the target, else the next larger, else the largest; 0 = the smallest");
+
+                check (lowdelay::warningFor ("Windows Audio").contains ("30 ms") && lowdelay::warningFor ("DirectSound").isNotEmpty()
+                           && lowdelay::warningFor ("Windows Audio (Low Latency Mode)").isEmpty()
+                           && lowdelay::warningFor ("Windows Audio (Exclusive Mode)").isEmpty() && lowdelay::warningFor ("ASIO").isEmpty(),
+                       "amber warning only for Windows Audio shared mode and DirectSound");
+
+                const auto ro = lowdelay::readout (139, 307, 48000.0, 2, 60.0, 0.123);
+                line ("readout: " + ro);
+                check (ro.contains ("in 2.9 + out 6.4 = 9.3 ms") && ro.contains ("dropouts: 2 in the last 60 s") && ro.contains ("load 12 %"),
+                       "settings readout: driver in + out = round trip, dropouts, load");
+                lowdelay::DropoutWindow w;
+                w.add (0.0, 5);
+                w.add (30000.0, 7);
+                w.add (70000.0, 9);   // the first sample falls out of the minute
+                const int inMinute = w.dropouts();
+                w.add (71000.0, 0);   // device restarted
+                check (inMinute == 2 && w.dropouts() == 0, "dropouts: counted over the last minute, restart clears");
+
+                // the processor's device latency: 0 with no device (a manager that never opened one)
+                cs->deviceInputLatency = 123;
+                cs->deviceOutputLatency = 456;
+                {
+                    juce::AudioDeviceManager unopened;
+                    lowdelay::LatencyPublisher pub (unopened, cs->deviceInputLatency, cs->deviceOutputLatency);
+                }
+                check (cs->deviceInputLatency.load() == 0 && cs->deviceOutputLatency.load() == 0, "device latency published as 0 with no device");
+
+                const int throttle = turnOffPowerThrottling();
+                line (juce::String ("power throttling off (this process): execution speed ") + ((throttle & 1) ? "yes" : "no")
+                      + ", timer resolution " + ((throttle & 2) ? "yes" : "no (needs Windows 11 22H2)"));
+            }
+
             // ---- 5. the editor with its StandaloneBar, painted off-screen (never added to the desktop) ----
             {
                 AppServices::instance() = &services;
@@ -473,6 +590,34 @@ namespace
                         juce::PNGImageFormat().writeImageToStream (img, os);
                         line ("bar painted in software: " + juce::String (bar->getWidth()) + "x" + juce::String (bar->getHeight())
                               + ", " + juce::String (ms, 2) + " ms -> " + png.getFileName());
+
+                        // the amber Audio button: the bar acts as if Windows Audio (shared mode) were open
+                        juce::TextButton* audio = nullptr;
+                        for (auto* c : bar->getChildren())
+                            if (auto* b = dynamic_cast<juce::TextButton*> (c); b != nullptr && b->getButtonText() == "Audio")
+                                audio = b;
+                        const bool plain = audio != nullptr && ! audio->getToggleState();
+                        services.testDeviceType = "Windows Audio";
+                        bar->refreshNow();   // what the bar's 10 Hz timer does
+                        const bool amber = audio != nullptr && audio->getToggleState() && audio->getTooltip().contains ("30 ms");
+                        juce::Image img2 (juce::Image::RGB, bar->getWidth(), bar->getHeight(), true, juce::SoftwareImageType());
+                        {
+                            juce::Graphics g (img2);
+                            bar->paintEntireComponent (g, true);
+                        }
+                        const auto png2 = outDir.getChildFile ("selftest-bar-amber.png");
+                        png2.deleteFile();
+                        {
+                            juce::FileOutputStream os2 (png2);
+                            juce::PNGImageFormat().writeImageToStream (img2, os2);
+                        }
+                        line ("Audio button tooltip in shared mode: " + (audio != nullptr ? audio->getTooltip() : juce::String ("-")));
+                        services.testDeviceType = "Windows Audio (Low Latency Mode)";
+                        bar->refreshNow();
+                        const bool cleared = audio != nullptr && ! audio->getToggleState();
+                        services.testDeviceType.clear();
+                        check (plain && amber && cleared, "Audio button amber on Windows Audio shared mode (tooltip says why), plain on Low "
+                                                          "Latency Mode -> " + png2.getFileName());
                     }
                     ed.reset();
                 }
@@ -528,19 +673,39 @@ namespace
                 return;
             }
 
+            turnOffPowerThrottling();
+
             services = std::make_unique<AppServices>();
             AppServices::instance() = services.get();
 
             auto* settings = appProperties.getUserSettings();
+            const bool firstRun = settings->getXmlValue ("audioSetup") == nullptr;   // decided before the holder runs
             const juce::Array<juce::StandalonePluginHolder::PluginInOuts> channels;
             holder = std::make_unique<juce::StandalonePluginHolder> (settings, false, juce::String(), nullptr, channels, false);
+            // the counts the holder opened the device with (its getNumInput/OutputChannels: the main buses)
+            const int inputsNeeded = holder->processor->getMainBusNumInputChannels();
+            const int outputsNeeded = holder->processor->getMainBusNumOutputChannels();
 
             // a guitar app: input on unless the user turned it off in an earlier run
             // (JUCE mutes it by default against feedback; the bar's Input button says "use headphones")
             if (! settings->getBoolValue ("clodInputChoice", false))
                 holder->getMuteInputValue() = false;
 
+            // first run (no saved device setup): the lowest-delay device instead of JUCE's first type (Windows Audio
+            // shared, ~30 ms more): a real ASIO driver at 128, else Low Latency Mode at its smallest buffer
+            if (firstRun)
+            {
+                const auto r = lowdelay::apply (holder->deviceManager, inputsNeeded, outputsNeeded, 128, false);
+                if (r.changed)
+                {
+                    services->startupNote = "Audio: " + lowdelay::describe (holder->deviceManager) + " (picked for the lowest delay)";
+                    holder->saveAudioDeviceState();
+                }
+            }
+
             services->deviceManager = &holder->deviceManager;
+            services->inputsNeeded = inputsNeeded;
+            services->outputsNeeded = outputsNeeded;
             services->inputMuted.referTo (holder->getMuteInputValue());
             services->settings = settings;
             services->saveAudioState = [h = holder.get()] { h->saveAudioDeviceState(); };
@@ -551,6 +716,9 @@ namespace
                 if (auto* port = proc->getJamPort())
                     port->setTrackSource (&services->player);
                 services->player.setSampleRate (proc->getSampleRate());
+                // the device's own latency for the Jam panel and the per-player totals (0 = no device)
+                latencyPublisher = std::make_unique<lowdelay::LatencyPublisher> (holder->deviceManager, proc->deviceInputLatency,
+                                                                                 proc->deviceOutputLatency);
             }
 
             mainWindow = std::make_unique<MainWindow> (*holder, settings);
@@ -562,6 +730,7 @@ namespace
             if (services != nullptr)
                 services->recorder.stop();
             mainWindow = nullptr;     // the editor
+            latencyPublisher = nullptr;
             holder = nullptr;         // stops the audio device, saves its setup, deletes the processor
             AppServices::instance() = nullptr;
             services = nullptr;       // after the processor: it held the track source and the output tap
@@ -585,6 +754,7 @@ namespace
         juce::ApplicationProperties appProperties;
         std::unique_ptr<AppServices> services;
         std::unique_ptr<juce::StandalonePluginHolder> holder;
+        std::unique_ptr<lowdelay::LatencyPublisher> latencyPublisher;
         std::unique_ptr<MainWindow> mainWindow;
     };
 }
