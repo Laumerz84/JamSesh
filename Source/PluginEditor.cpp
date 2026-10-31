@@ -217,6 +217,8 @@ void ClodScopeEditor::setMainView (int view)
 void ClodScopeEditor::applyMainView (int view)
 {
     view = juce::jlimit (0, numViews - 1, view);
+    if (view <= 3)   // the last real view: a "Follow my view" Jam Sesh tile shows it while you're on the Jam page
+        proc.apvts.state.setProperty ("jamLastView", view, nullptr);
     for (int i = 0; i < numViews; ++i)
         viewButtons[i].setToggleState (i == view, juce::dontSendNotification);
     if (view == currentView)

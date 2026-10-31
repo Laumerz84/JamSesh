@@ -272,6 +272,13 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         for (auto* b : sendMode.buttons) hovers.push_back (std::make_unique<widgets_detail::HoverReporter> (*b, "jam.sendMode", help));
         sendMode.setTooltip (summaryOf ("jam.sendMode"));
 
+        // ---- what your tile shows (ViewState::capture reads it) ----
+        tileView.create (panel, { "Follow", "2D scope", "3D", "Orbital", "Sculptor" });
+        tileView.onPick = [this] (int i) { proc.apvts.state.setProperty ("jamTileView", i, nullptr); };
+        for (auto* b : tileView.buttons) hovers.push_back (std::make_unique<widgets_detail::HoverReporter> (*b, "jam.tileView", help));
+        tileView.setTooltip (summaryOf ("jam.tileView"));
+        tileView.select ((int) proc.apvts.state.getProperty ("jamTileView", 0));
+
         // ---- latency options ----
         auto toggle = [this, &setup] (juce::ToggleButton& t, const char* text, const char* id, std::function<void (jam::LatencyOptions&, bool)> fn)
         {
@@ -319,6 +326,8 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         notes[sendNote].text = "Finished sound: friends hear exactly what you hear (stereo). Raw input + settings: half the "
                                "data; friends rebuild your sound on their computer from your dry input and your settings, which "
                                "costs them CPU.";
+        notes[tileNote].text = "Your tile in the Jam Sesh view, for you and your friends. Follow: the view you have open "
+                               "(here on the Jam Sesh page, the one you had open last). Or pick one to always show it.";
         notes[compressionNote].text = "Off: uncompressed 16-bit audio, no codec delay, ~0.77 Mbit/s per channel. On: Opus, "
                                       "about 10x less data but ~5 ms more delay.";
         notes[lossNote].text = "Sends each packet's audio again in the next one, so a single lost packet is not heard. Doubles the "
@@ -367,7 +376,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
     void colours()
     {
         Theme::setAccent (panel, accent());
-        for (auto* s : { &role, &sendMode, &packet, &jitterMode })
+        for (auto* s : { &role, &sendMode, &tileView, &packet, &jitterMode })
             s->colour (accent());
         for (auto* e : { &nameEd, &portEd, &codeEd })
             e->setColour (juce::TextEditor::focusedOutlineColourId, accent());
@@ -480,6 +489,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         const auto* port = proc.getJamPort();
         role.setEnabled (port != nullptr);
         role.select (port != nullptr && port->role() == jam::Role::track ? 1 : 0);
+        tileView.select ((int) proc.apvts.state.getProperty ("jamTileView", 0));   // also after a session is reloaded
 
         // player rows
         // outside a session the list may still hold yourself: show the explainer instead of tiles
@@ -651,6 +661,10 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
             if (apply) sendMode.setBounds ({ pad, y, inner, 26 });
             y += 32;
             note (sendNote);
+            y += 4;
+            if (apply) tileView.setBounds ({ pad, y, inner, 26 });
+            y += 32;
+            note (tileNote);
             end (sendRect, top);
         }
 
@@ -808,7 +822,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
                 makeLayout (n.text, Palette::dim, n.area.getWidth()).draw (g, n.area.toFloat());
     }
 
-    enum { roleNote, sendNote, compressionNote, lossNote, packetNote, jitterNote, driftNote, syncNote, oneBarNote, routerNote, numNotes };
+    enum { roleNote, sendNote, compressionNote, lossNote, packetNote, jitterNote, driftNote, syncNote, oneBarNote, routerNote, tileNote, numNotes };
     static constexpr int kbpsChoices[] = { 64, 96, 128, 192, 256 };
 
     JamPanel& panel;
@@ -819,7 +833,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
 
     juce::TextEditor nameEd, portEd, codeEd;
     juce::TextButton hostBtn, joinBtn, leaveBtn, copyBtn;
-    Segments role, sendMode, packet, jitterMode;
+    Segments role, sendMode, tileView, packet, jitterMode;
     juce::ToggleButton compression, lossProtection, drift, syncTrack, oneBar;
     juce::ComboBox kbps;
     juce::Slider jitterMs;
@@ -932,6 +946,12 @@ HelpList JamPanel::helpEntries()
           "that carries only the beat (beat -> that insert -> Master) and set it to Backing track; not on the Master, where it "
           "would also send your own guitar. The standalone app has its own track player.",
           "One player instance per computer; the first instance set to Player is used." },
+        { "jam.tileView", "Your tile",
+          "What your tile in the Jam Sesh view shows, for you and every friend.",
+          "Follow: the view you have open; while you're on the Jam Sesh page, the one you had open last. 2D scope, 3D, "
+          "Orbital or Sculptor: always that view, with your own settings for it (the 3D mode, the orbital look ...). "
+          "Friends' computers draw it from your sound and settings, so it costs them a little graphics work.",
+          "Remembered with your session; presets don't change it." },
         { "jam.sendMode", "What you send",
           "Your finished sound, or your dry input plus your settings.",
           "Finished sound: stereo, exactly what you hear (2 x 0.77 Mbit/s uncompressed). Raw input + settings: your dry input "

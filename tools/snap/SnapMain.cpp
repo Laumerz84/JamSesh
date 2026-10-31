@@ -358,6 +358,23 @@ int main (int argc, char** argv)
                     savePanelOf (*jp, outDir.getChildFile ("jam_panel_friend.png"));
                 save (*ed, outDir.getChildFile ("editor_jam_friend.png"));
                 tileCosts ("with a friend");
+
+                // your tile with a view chosen for it (3D) while you're on the Jam Sesh page
+                proc.apvts.state.setProperty ("jamTileView", 2, nullptr);
+                pump (1200);
+                tickTiles (30);
+                for (auto& p : session->players())
+                    if (p.isSelf)
+                    {
+                        ViewState vs;
+                        session->viewStateFor (p.id, vs);
+                        std::cout << "    your tile set to 3D on the Jam Sesh page: view state mainView " << vs.mainView << "\n";
+                    }
+                if (auto* jv = findChild<JamView> (*ed))
+                    save (*jv, outDir.getChildFile ("jam_view_tile3d.png"));
+                if (auto* jp = findChild<JamPanel> (*ed))
+                    save (*jp, outDir.getChildFile ("jam_panel_tile3d.png"));   // the whole panel, not only what scrolls into view
+                proc.apvts.state.setProperty ("jamTileView", 0, nullptr);
                 set ("mainView", 0.0f);
                 pump (50);
             }

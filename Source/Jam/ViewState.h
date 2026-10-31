@@ -21,7 +21,8 @@ struct ViewState
     std::vector<std::pair<juce::String, juce::String>> texts;   // text settings (the 3D views' custom formulas)
     juce::MemoryBlock extra;                                    // the sculpted wave (SculptWave::toBytes)
 
-    // Message thread: what this plugin shows right now. A player on the Jam Sesh view counts as the 2D scope.
+    // Message thread: what this player's Jam Sesh tile shows: the view chosen for it on the Jam Sesh page, or
+    // the view they have open (on the Jam Sesh page itself: the one they had open last).
     // The processor version takes the sculpted wave exactly as the synth plays it (prefer it); the APVTS
     // version rebuilds it from the stored tables (A/B morph only, without the other macros).
     static ViewState capture (ClodScopeProcessor&);

@@ -33,12 +33,24 @@ namespace
 
     constexpr int maxTextBytes = 512;   // a formula longer than this is cut (the tile then shows an error)
 
-    int clampView (int v) { return v >= 0 && v <= 3 ? v : 0; }   // 4 = Jam Sesh view: show their 2D scope
+    int clampView (int v) { return v >= 0 && v <= 3 ? v : 0; }
+
+    // What the player's Jam Sesh tile shows: the view chosen for it in the Jam Sesh page (state property
+    // "jamTileView": 1..4 = 2D scope .. wave sculptor), or with 0 ("Follow my view") the view they have
+    // open; on the Jam Sesh page itself (mainView 4) the one they had open last ("jamLastView", kept by
+    // the editor).
+    int tileView (juce::AudioProcessorValueTreeState& s)
+    {
+        const int chosen = (int) s.state.getProperty ("jamTileView", 0);
+        if (chosen >= 1 && chosen <= 4)
+            return chosen - 1;
+        const int open = s.getRawParameterValue ("mainView") != nullptr ? (int) s.getRawParameterValue ("mainView")->load() : 0;
+        return open >= 0 && open <= 3 ? open : clampView ((int) s.state.getProperty ("jamLastView", 0));
+    }
 
     void captureCommon (juce::AudioProcessorValueTreeState& s, ViewState& v)
     {
-        if (auto* p = s.getRawParameterValue ("mainView"))
-            v.mainView = clampView ((int) p->load());
+        v.mainView = tileView (s);
         for (auto* id : paramIds)
             if (auto* p = s.getRawParameterValue (id))
                 v.params.emplace_back (id, p->load());
