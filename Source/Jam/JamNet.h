@@ -113,6 +113,11 @@ namespace jam
         // the host's tempo now (joiners: extrapolated on the session clock); false before any arrived
         bool sessionTransport (double& bpm, double& ppqNow, bool& playing) const;
 
+        // The shared metronome (Jam/JamMetronome.h): the host's beat grid rides on the tempo message as trailing
+        // fields (1.4.0+; older readers ignore them, and a tempo without them means "off").
+        void setLocalMetronome (const BeatGrid&);          // host: sent with the tempo, at once when it changes
+        bool sessionMetronome (BeatGrid&) const;           // the host's grid (host: its own); false = none yet
+
         // ---- numbers for tests / the UI ----
         struct Counters { juce::uint64 sent = 0, received = 0, relayed = 0, resent = 0, dropped = 0, audioIn = 0, audioOut = 0; };
         Counters counters() const noexcept;

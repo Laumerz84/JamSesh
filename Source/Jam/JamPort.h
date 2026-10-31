@@ -29,6 +29,11 @@ namespace jam
         void process (juce::AudioBuffer<float>& io, int numChannels, const juce::AudioBuffer<float>& rawInput,
                       const juce::MidiBuffer& midi, double bpm, double ppqPosition, bool playing) noexcept;
 
+        // Audio thread, after process() and after the app's recorder tap: the shared metronome's clicks
+        // (Jam/JamMetronome.h), for this player's ears only: never sent, never recorded. The session's player
+        // instance only. blockStartSeconds: jam::localSeconds() when processBlock started.
+        void mixMetronome (juce::AudioBuffer<float>& io, int numChannels, double blockStartSeconds) noexcept;
+
         // message thread
         void setRole (Role);
         Role role() const noexcept;

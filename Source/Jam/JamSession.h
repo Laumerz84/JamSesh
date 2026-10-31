@@ -15,6 +15,7 @@ namespace jam
     class Engine;    // Jam/JamEngine.h  (owner: stream soldier)
     class Replicas;  // Jam/JamReplica.h (owner: net soldier)
     class Port;      // Jam/JamPort.h    (owner: stream soldier)
+    class Metronome; // Jam/JamMetronome.h (the shared metronome)
 
     // The one Jam Sesh per process: every Clod Scope instance in an FL project, and the standalone app,
     // share it. Hold it with juce::SharedResourcePointer<jam::Session>; it lives while anyone holds it.
@@ -59,6 +60,7 @@ namespace jam
         Network& network();
         Engine& engine();
         Replicas& replicas();
+        Metronome& metronome();                 // the shared click (the host's grid in a sesh, this computer's outside one)
 
         // ---- plugin instances (called by jam::Port, message thread) ----
         void attach (Port&);

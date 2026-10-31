@@ -2,6 +2,7 @@
 #include "JamSession.h"
 #include "JamPort.h"
 #include "JamUiCommon.h"
+#include "JamMetronome.h"
 #include "../PluginProcessor.h"
 
 // The Jam Sesh page (owner: jam-ui soldier). Sections: SESSION (status, the code + Copy, your name,
@@ -351,6 +352,8 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
                                  "Tailscale or ZeroTier and joins the same network; the host then shares a code with the VPN "
                                  "address. Same house or same Wi-Fi: nothing to set up.";
 
+        panel.addAndMakeVisible (metronome);   // METRONOME (Jam/JamMetronome.h)
+
         colours();
         session->addChangeListener (this);
         syncOptions();
@@ -384,6 +387,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         joinBtn.setColour (juce::TextButton::buttonColourId, accent().withAlpha (0.28f));
         for (auto* r : rows)
             r->colours();
+        metronome.setAccent (accent());
     }
 
     //==========================================================================
@@ -651,6 +655,15 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
             end (playersRect, top);
         }
 
+        // METRONOME (Jam/JamMetronome.h)
+        {
+            const int top = begin();
+            const int h = metronome.idealHeight (inner);
+            place (&metronome, { pad, y, inner, h });
+            y += h;
+            end (metronomeRect, top);
+        }
+
         // THIS PLUGIN
         {
             const int top = begin();
@@ -729,6 +742,7 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
         const auto a = accent();
         Theme::drawSection (g, sessionRect, "JAM SESH", a);
         Theme::drawSection (g, playersRect, "PLAYERS", a);
+        Theme::drawSection (g, metronomeRect, "METRONOME", a);
         Theme::drawSection (g, roleRect, "THIS PLUGIN", a);
         Theme::drawSection (g, sendRect, "WHAT YOU SEND", a);
         Theme::drawSection (g, latencyRect, "LATENCY", a);
@@ -855,6 +869,8 @@ struct JamPanel::Impl : private juce::ChangeListener, private juce::Timer
     bool syncing = false;
     juce::uint32 copiedUntil = 0;
 
+    jam::MetronomeRow metronome { help };
+    juce::Rectangle<int> metronomeRect;
     juce::Rectangle<int> sessionRect, playersRect, roleRect, sendRect, latencyRect, routerRect;
     juce::Rectangle<int> statusRect, errorRect, codeRect, nameLabel, hostLabel, joinLabel, packetLabel, jitterLabel,
                          emptyPlayersRect, estimateRect;
@@ -896,7 +912,8 @@ void JamPanel::lookAndFeelChanged()
 HelpList JamPanel::helpEntries()
 {
     const juce::String port (jam::defaultPort);
-    return {
+    auto list = jam::Metronome::helpEntries();   // the METRONOME row's (Jam/JamMetronome.cpp), then the rest
+    HelpList rest {
         { "jam.name", "Your name",
           "The name your friends see on your tile and in their player list.",
           "Sent to everyone when you host or join (up to 24 characters). Remembered for every Clod Scope on this computer "
@@ -1018,4 +1035,6 @@ HelpList JamPanel::helpEntries()
           "friend in Mbit/s (you send to every friend separately).",
           {} },
     };
+    list.insert (list.end(), rest.begin(), rest.end());
+    return list;
 }

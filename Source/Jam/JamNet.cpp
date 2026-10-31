@@ -357,6 +357,7 @@ struct Network::Impl : private juce::Thread
     bool localPlaying = false;
     double hostBpm = 120.0, hostPpq = 0.0, hostTempoAt = 0.0;
     bool hostPlaying = false, haveTempo = false;
+    BeatGrid localGrid, hostGrid;    // the shared metronome: what the host sends / what a joiner got
     double lastService = 0, lastMeta = 0, lastTempo = 0, lastMarkFlows = 0;
    #ifdef _WIN32
     VoiceMarking voice;
@@ -742,6 +743,16 @@ struct Network::Impl : private juce::Thread
                     return;
                 hostBpm = bpm; hostPpq = ppq; hostPlaying = playing; hostTempoAt = at;
                 haveTempo = true;
+                // trailing (1.4.0+): the metronome's beat grid; an older host sends none = off
+                hostGrid = {};
+                if (r.remaining() >= 18)
+                {
+                    const auto flags = r.u8();
+                    const int beats = r.u8();
+                    const double gridBpm = r.f64(), anchor = r.f64();
+                    if (r.ok && beats >= 1 && beats <= 16 && gridBpm >= 20.0 && gridBpm <= 999.0)
+                        hostGrid = { (flags & 1) != 0, beats, gridBpm, anchor };
+                }
                 break;
             }
             case Type::pluginState:
@@ -1130,6 +1141,10 @@ struct Network::Impl : private juce::Thread
             o.w.f64 (localPpq);
             o.w.u8 (localPlaying ? 1 : 0);
             o.w.f64 (clock.toSession (now));
+            o.w.u8 (localGrid.on ? 1 : 0);         // trailing: the metronome (1.3.0 readers stop before it)
+            o.w.u8 ((juce::uint8) localGrid.beatsPerBar);
+            o.w.f64 (localGrid.bpm);
+            o.w.f64 (localGrid.anchor);
             sendUnreliable (o, noPeer);
         }
     }
@@ -1342,6 +1357,7 @@ struct Network::Impl : private juce::Thread
         nextId = 2;
         listVersion = 0;
         haveTempo = false;
+        hostGrid = {};
         clock.reset();
         if (st != Status::failed || sayBye)
             st = Status::idle;
@@ -1695,6 +1711,31 @@ bool Network::sessionTransport (double& bpm, double& ppqNow, bool& playing) cons
     bpm = m.hostBpm;
     playing = m.hostPlaying;
     ppqNow = m.hostPpq + (playing ? (m.clock.sessionNow() - m.hostTempoAt) * bpm / 60.0 : 0.0);
+    return true;
+}
+
+void Network::setLocalMetronome (const BeatGrid& g)
+{
+    auto& m = *impl;
+    const juce::ScopedLock sl (m.lock);
+    const auto& o = m.localGrid;
+    if (g.on != o.on || g.beatsPerBar != o.beatsPerBar || g.bpm != o.bpm || g.anchor != o.anchor)
+        m.lastTempo = 0;   // friends hear the change with the next tempo message, at once
+    m.localGrid = g;
+}
+
+bool Network::sessionMetronome (BeatGrid& g) const
+{
+    auto& m = *impl;
+    const juce::ScopedLock sl (m.lock);
+    if (m.hosting.load())
+    {
+        g = m.localGrid;
+        return true;
+    }
+    if (! m.haveTempo)
+        return false;
+    g = m.hostGrid;
     return true;
 }
 

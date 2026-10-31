@@ -9,7 +9,7 @@
 // Owner: test soldier.
 //
 //   ClodJamTest <outDir> [--quick] [--packet=N] [case ...]   run cases (default: all), summary in <outDir>\summary.txt
-//      cases: local connect2 connect4 latency quality jitter drift raw rawmidi track onebar cpu
+//      cases: local connect2 connect4 latency quality jitter drift raw rawmidi track onebar metronome cpu
 //             lbN[pM] (latency at host block N, packet M; p0 = auto)  jbN[pM] (jitter5 / jitter1 / loss5 protected at block N)
 //      --packet=N: packet size for every case that sets none (0 = auto)
 //   ClodJamTest --reach [--live]   jam::Reach against a fake router and STUN server (ReachTest.cpp); --live also
@@ -21,6 +21,7 @@
 //      --track fl:SIGNAL | file:SIGNAL   (a second instance with the track role / a jam::TrackSource)
 //      --patch drive   (a coloured sound for raw-input checks)   --view MAINVIEW[,V3MODE]
 //      --knob ID:VALUE:SECONDS   (moves a parameter mid-run)
+//      --metro on[:BEATS]  --bpm N  --transport stopped  --outlat SAMPLES   (the shared metronome)
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 #include <iostream>
@@ -29,6 +30,7 @@
 #include "../../Source/PluginProcessor.h"
 #include "../../Source/Jam/JamSession.h"
 #include "../../Source/Jam/JamPort.h"
+#include "../../Source/Jam/JamMetronome.h"
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
@@ -234,11 +236,12 @@ namespace
         bool isPlaying() const noexcept override { return playing; }
     };
 
-    // A host transport at 120 BPM, playing, 4/4
+    // A host transport at 120 BPM, playing, 4/4 (--bpm, --transport stopped: like the app, which has none)
     struct SimPlayHead : juce::AudioPlayHead
     {
         std::atomic<juce::int64> sample { 0 };
         double bpm = 120.0;
+        bool playing = true;
         juce::Optional<PositionInfo> getPosition() const override
         {
             PositionInfo p;
@@ -250,7 +253,7 @@ namespace
             p.setTimeInSeconds ((double) s / sampleRate);
             p.setPpqPosition (ppq);
             p.setPpqPositionOfLastBarStart (std::floor (ppq / 4.0) * 4.0);
-            p.setIsPlaying (true);
+            p.setIsPlaying (playing);
             return p;
         }
     };
@@ -412,6 +415,11 @@ namespace
         double seconds = 10.0, ppm = 0.0;
         juce::String code, name = "player", signal = "silence", opt, track, patch, view, knob;
         bool notes = false, dump = false;   // --notes: play makeNotes() over MIDI; --dump: write the output (raw float32) next to --out
+        // --metro on[:BEATS]: this player's metronome switch (the host's leads the sesh); --bpm N: the transport's tempo;
+        // --transport stopped: the transport does not play (the app); --outlat N: the sound card's output latency in samples
+        juce::String metro, transport;
+        double bpm = 120.0;
+        int outlat = 1;
     };
 
     jam::LatencyOptions parseOptions (const juce::String& spec)
@@ -552,7 +560,7 @@ namespace
         // the simulated card adds no latency of its own: "known, ~0" (1 sample), so the shown totals use
         // the real formula instead of their unknown-card fallbacks
         proc.deviceInputLatency = 1;
-        proc.deviceOutputLatency = 1;
+        proc.deviceOutputLatency = juce::jmax (1, a.outlat);
         proc.setPlayConfigDetails (2, 2, sampleRate, a.block);
 
         std::unique_ptr<juce::AudioProcessor> trackBase;
@@ -604,9 +612,17 @@ namespace
 
         juce::SharedResourcePointer<jam::Session> session;
         session->setOptions (parseOptions (a.opt));
+        if (a.metro.startsWith ("on"))
+        {
+            session->metronome().setOn (true);
+            if (const int beats = a.metro.fromFirstOccurrenceOf (":", false, false).getIntValue(); beats > 0)
+                session->metronome().setBeatsPerBar (beats);
+        }
 
         SoundCard card (proc, a.block, a.ppm, a.seconds + 25.0);
         card.input = Signal::parse (a.signal);
+        card.head.bpm = a.bpm;
+        card.head.playing = a.transport != "stopped";
         if (a.notes)
         {
             for (auto& nt : makeNotes())
@@ -737,7 +753,8 @@ namespace
                  + ",buffer:" + fmt (median (s.buf), 2) + ",bufferMin:" + fmt (mm (s.buf, true), 2) + ",bufferMax:" + fmt (mm (s.buf, false), 2)
                  + ",bufferFirst:" + fmt (s.buf.empty() ? 0.0 : s.buf.front(), 2) + ",bufferLast:" + fmt (s.buf.empty() ? 0.0 : s.buf.back(), 2)
                  + ",total:" + fmt (median (s.total), 2) + ",loss:" + fmt (s.loss.empty() ? 0.0 : s.loss.back(), 2)
-                 + ",drift:" + fmt (median (s.drift)) + ",level:" + fmt (median (s.level)));
+                 + ",drift:" + fmt (median (s.drift)) + ",level:" + fmt (median (s.level))
+                 + ",levelMax:" + fmt (s.level.empty() ? -100.0 : mm (s.level, false)));
         }
 
         // ---- analysis of the captures ----
@@ -759,9 +776,18 @@ namespace
             std::vector<double> ti, to;
             if (card.input.kind == Signal::clicks)
                 for (auto s : detectClicks (card.in, go0, n, holdMs)) ti.push_back (card.sampleToMs (s));
-            for (auto s : detectClicks (card.out, go0, n, holdMs)) to.push_back (card.sampleToMs (s));
+            std::vector<double> peaks;
+            for (auto s : detectClicks (card.out, go0, n, holdMs))
+            {
+                to.push_back (card.sampleToMs (s));
+                float pk = 0.0f;   // the click's peak in its first 10 ms (the metronome's bar beats are louder)
+                for (auto k = s; k < juce::jmin (n, s + 480); ++k)
+                    pk = juce::jmax (pk, std::abs (card.out[(size_t) k]));
+                peaks.push_back (pk);
+            }
             put ("clicksIn", joinNums (ti));
             put ("clicksOut", joinNums (to));
+            put ("clicksPeak", joinNums (peaks, 3));
         }
         if (settle + 70000 < n)
         {
@@ -1419,6 +1445,127 @@ namespace
                 line ("    repro: " + run.repro);
         }
 
+        // The shared metronome: the host switches it on; three players with different blocks, sound-card output
+        // latencies (1 / 480 / 144 samples, modelled: a click "heard" = its output sample + that latency) and a card
+        // running 80 ppm fast each make their own clicks, which must leave their speakers together (on the shared
+        // clock) and follow the tempo, with the bar's first beat accented at the same moment for everyone. Every
+        // input is silence, so anything a player receives from the others would be a click sent over the network.
+        // dawPlaying: the host program's transport plays (FL Studio): the clicks must fall on its beats as well.
+        void metronome (const juce::String& caseName, bool dawPlaying, double seconds)
+        {
+            Run run;
+            run.name = caseName;
+            run.seconds = seconds;
+            const double bpm = 100.0, beatMs = 60000.0 / bpm;
+            const int outlat[3] = { 1, 480, 144 };
+            auto hostArgs = common ("silence", {}, 128);
+            hostArgs.addArray ({ "--metro", "on:4", "--bpm", juce::String (bpm), "--outlat", juce::String (outlat[0]) });
+            if (! dawPlaying)
+                hostArgs.addArray ({ "--transport", "stopped" });
+            run.add ("host", hostArgs);
+            auto p2 = common ("silence", {}, 64);
+            p2.addArray ({ "--outlat", juce::String (outlat[1]) });
+            auto p3 = common ("silence", {}, 256, 80.0);
+            p3.addArray ({ "--outlat", juce::String (outlat[2]) });
+            run.add ("p2", p2);
+            run.add ("p3", p3);
+            exec (run);
+            if (failed (run, caseName))
+                return;
+
+            std::vector<double> heard[3], peaks[3];
+            double from = 0.0, to = 1.0e18;
+            for (int i = 0; i < 3; ++i)
+            {
+                for (auto t : parseNums (run.r (i)["clicksOut"]))
+                    heard[i].push_back (t + outlat[i] / 48.0);
+                peaks[i] = parseNums (run.r (i)["clicksPeak"]);
+                const double go = run.r (i)["goMs"].getDoubleValue();
+                from = juce::jmax (from, go + 300.0);
+                to = juce::jmin (to, go + run.r (i)["measuredSeconds"].getDoubleValue() * 1000.0 - 300.0);
+            }
+            // loud = the bar's first beat (each player's own midpoint between its softest and loudest click)
+            auto loud = [&] (int i, size_t k)
+            {
+                if (peaks[i].size() != heard[i].size() || peaks[i].empty()) return false;
+                const auto [lo, hi] = std::minmax_element (peaks[i].begin(), peaks[i].end());
+                return peaks[i][k] > 0.5 * (*lo + *hi);
+            };
+
+            // tempo: the gaps between the host's clicks
+            std::vector<double> gaps;
+            for (size_t k = 1; k < heard[0].size(); ++k)
+                gaps.push_back (heard[0][k] - heard[0][k - 1]);
+            double worstGap = 0.0;
+            for (auto gp : gaps) worstGap = juce::jmax (worstGap, std::abs (gp - beatMs));
+
+            // together: every host click inside everyone's window against each friend's nearest click
+            std::vector<double> diffs;
+            int expected = 0, matched = 0, accentsHost = 0, accentsAgree = 0, accentGapBad = 0;
+            double lastAccent = -1.0;
+            for (size_t k = 0; k < heard[0].size(); ++k)
+            {
+                const double t = heard[0][k];
+                if (t < from || t > to)
+                    continue;
+                const bool acc = loud (0, k);
+                if (acc)
+                {
+                    ++accentsHost;
+                    if (lastAccent > 0.0 && std::abs (t - lastAccent - 4.0 * beatMs) > 2.0)
+                        ++accentGapBad;
+                    lastAccent = t;
+                }
+                for (int i = 1; i < 3; ++i)
+                {
+                    ++expected;
+                    for (size_t j = 0; j < heard[i].size(); ++j)
+                        if (std::abs (heard[i][j] - t) < 0.4 * beatMs)
+                        {
+                            diffs.push_back (heard[i][j] - t);
+                            ++matched;
+                            if (loud (i, j) == acc) ++accentsAgree;
+                            break;
+                        }
+                }
+            }
+            double worst = 0.0, lo = 1e9, hi = -1e9;
+            for (auto d : diffs) { worst = juce::jmax (worst, std::abs (d)); lo = juce::jmin (lo, d); hi = juce::jmax (hi, d); }
+
+            // the host program's beats (its transport plays from its first block: beat k at startMs + k * beatMs, heard
+            // its output latency later)
+            double dawWorst = 0.0;
+            if (dawPlaying)
+            {
+                const double start = run.r (0)["startMs"].getDoubleValue() + outlat[0] / 48.0;
+                for (auto t : heard[0])
+                    dawWorst = juce::jmax (dawWorst, std::abs (std::remainder (t - start, beatMs)));
+            }
+
+            // nothing crossed the network: the loudest anyone received from anyone
+            double received = -100.0;
+            for (int i = 0; i < 3; ++i)
+                for (auto& k : run.r (i).getAllKeys())
+                    if (k.startsWith ("peer."))
+                        received = juce::jmax (received, sub (run.r (i)[k], "levelMax"));
+
+            const bool ok = heard[0].size() >= 4 && expected > 0 && matched >= (int) (0.95 * expected) && worst <= 2.0
+                         && std::abs (median (gaps) - beatMs) <= 0.5 && worstGap <= 1.5 && accentsHost >= 2
+                         && accentsAgree == matched && accentGapBad == 0 && received < -60.0 && (! dawPlaying || dawWorst <= 1.5);
+            line (caseName + ": " + (ok ? "PASS" : "FAIL") + " - friends matched " + juce::String (matched) + "/" + juce::String (expected)
+                  + " host clicks; friend minus host " + fmt (median (diffs), 3) + " ms median (" + fmt (diffs.empty() ? 0.0 : lo, 3)
+                  + " .. " + fmt (diffs.empty() ? 0.0 : hi, 3) + "), worst |diff| " + fmt (worst, 3) + " ms (need <= 2); tempo "
+                  + fmt (bpm, 0) + " BPM: gap " + fmt (median (gaps), 3) + " ms median (need " + fmt (beatMs, 0) + "), worst off "
+                  + fmt (worstGap, 3) + " ms; bar accents " + juce::String (accentsHost) + " at the host, agree "
+                  + juce::String (accentsAgree) + "/" + juce::String (matched) + ", off-bar " + juce::String (accentGapBad)
+                  + (dawPlaying ? "; off the host program's beats by " + fmt (dawWorst, 3) + " ms at worst" : juce::String())
+                  + "; loudest received from a friend " + fmt (received, 1) + " dBFS (need < -60: no click sent)"
+                  + "; clicks heard " + juce::String ((int) heard[0].size()) + "/" + juce::String ((int) heard[1].size()) + "/"
+                  + juce::String ((int) heard[2].size()));
+            if (! ok)
+                line ("    repro: " + run.repro);
+        }
+
         void cpuReport()
         {
             if (cpu2 < 0 || cpu4 < 0)
@@ -1441,7 +1588,7 @@ namespace
         o.outDir = outDir;
         o.exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
         if (cases.isEmpty())
-            cases = { "local", "connect2", "connect4", "latency", "quality", "jitter", "drift", "raw", "rawmidi", "track", "onebar", "cpu" };
+            cases = { "local", "connect2", "connect4", "latency", "quality", "jitter", "drift", "raw", "rawmidi", "track", "onebar", "metronome", "cpu" };
         const double q = quick ? 0.4 : 1.0;
         o.line ("Clod Jam Test " + juce::Time::getCurrentTime().toString (true, true) + (quick ? " (quick)" : "")
                 + (packet.isNotEmpty() ? " packet=" + packet : juce::String()));
@@ -1500,6 +1647,11 @@ namespace
                 o.rawMidi ("rawmidi_loss5_protected", "raw=1,prot=1", "loss=5");
             }
             if (c == "onebar") o.latency ("onebar", "onebar=1", {}, 16.0 * q + 8.0, 3000.0, 2000.0);
+            if (c == "metronome")
+            {
+                o.metronome ("metronome", false, 14.0 * q + 6.0);       // the app: no transport, the grid runs on the session clock
+                o.metronome ("metronome_daw", true, 14.0 * q + 6.0);    // FL Studio playing: on its beats and bars
+            }
             if (c == "cpu") o.cpuReport();
         }
         outDir.getChildFile ("summary.txt").replaceWithText (o.summary.joinIntoString ("\n") + "\n");
@@ -1547,6 +1699,10 @@ int main (int argc, char** argv)
         a.knob = value ("--knob", {});
         a.notes = args.contains ("--notes");
         a.dump = args.contains ("--dump");
+        a.metro = value ("--metro", {});
+        a.transport = value ("--transport", {});
+        a.bpm = value ("--bpm", "120").getDoubleValue();
+        a.outlat = value ("--outlat", "1").getIntValue();
         return runPlayer (a);
     }
 

@@ -3,6 +3,7 @@
 #include "JamEngine.h"
 #include "JamReplica.h"
 #include "JamPort.h"
+#include "JamMetronome.h"
 #include "ViewState.h"
 #include "../UI/ViewFeed.h"
 #include "../PluginProcessor.h"
@@ -85,6 +86,7 @@ struct Session::Impl : private juce::Timer
     Network network;
     Engine engine;
     Replicas replicas;
+    Metronome metronome;
     juce::Array<Port*> ports;
     std::atomic<Port*> player { nullptr }, track { nullptr };
     LatencyOptions options;
@@ -243,6 +245,8 @@ struct Session::Impl : private juce::Timer
             rawSent = false;
         }
 
+        updateMetronome (pp);
+
         if (tick % 30 == 0)
             writeNetLog();
 
@@ -253,6 +257,33 @@ struct Session::Impl : private juce::Timer
             lastChanges = c;
             owner.sendChangeMessage();
         }
+    }
+
+    // The shared metronome (Jam/JamMetronome.h): a friend follows the host's grid (none from an older host: off);
+    // the host leads it and sends it with the tempo; outside a sesh this computer runs its own on its tempo.
+    void updateMetronome (Port* pp)
+    {
+        const auto st = network.status();
+        BeatGrid g;
+        if (st == Status::joining || st == Status::connected)
+        {
+            if (! network.sessionMetronome (g))
+                g = {};
+        }
+        else
+        {
+            double bpm = 0.0, ppq = 0.0;
+            bool playing = false;
+            if (st != Status::hosting || ! network.sessionTransport (bpm, ppq, playing))   // host: the tempo it sends
+            {
+                auto* src = track.load() != nullptr ? track.load() : pp;
+                bpm = src != nullptr ? src->lastTransport().bpm : 120.0;
+            }
+            g = metronome.ownGrid (bpm, network.sessionTime());
+            if (st == Status::hosting)
+                network.setLocalMetronome (g);
+        }
+        metronome.publish (g);
     }
 
     // test only: CLOD_JAM_NETLOG=<dir> appends one line a second to <dir>/net-<pid>.log (status, clock,
@@ -506,6 +537,7 @@ bool Session::viewStateFor (PeerId p, ViewState& out) const
 Network& Session::network() { return impl->network; }
 Engine& Session::engine() { return impl->engine; }
 Replicas& Session::replicas() { return impl->replicas; }
+Metronome& Session::metronome() { return impl->metronome; }
 
 void Session::attach (Port& p)
 {

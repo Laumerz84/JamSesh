@@ -241,6 +241,7 @@ void ClodScopeProcessor::delayDry (int numChannels, int numSamples) noexcept
 void ClodScopeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    const double blockStart = juce::Time::getMillisecondCounterHiRes() * 0.001;   // the metronome's timing (jam::localSeconds)
 
     const int numCh = juce::jmin (buffer.getNumChannels(), 2);
     const int n = buffer.getNumSamples();
@@ -388,6 +389,10 @@ void ClodScopeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     if (auto* t = outputTap.load())
         t->tap (buffer, numCh, n);
+
+    // the shared metronome: for this player's ears only, so after the recorder's tap (never sent, never recorded)
+    if (jamPort != nullptr)
+        jamPort->mixMetronome (buffer, numCh, blockStart);
 }
 
 int ClodScopeProcessor::getNumPrograms()                       { return juce::jmax (1, presets.getNumPrograms()); }
