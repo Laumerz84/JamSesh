@@ -348,7 +348,8 @@ HelpList SynthEngine::helpEntries()
     add ("synTrackMode", "Tracking mode",
          "Whether the input is heard as one note at a time or as chords.",
          "Mono -> one voice follows the input's pitch (McLeod pitch method, follows every bend). A new note starts once its "
-         "pitch has held steady for 4 analysis frames (3 right after a strong pick attack): ~15 ms at A4, ~33 ms at low E, and "
+         "pitch has held steady for 4 analysis frames (2 right after a strong pick attack, when only the audio since the attack "
+         "is analysed): ~9 ms at A4, ~25 ms at low E, and "
          "a finger squeak, a pick scrape or a muted strum doesn't play. "
          "Chord -> up to 6 notes (one per guitar string) are heard at once and each plays its own voice. Every 5.3 ms an 85 ms spectrum (Bass / Full "
          "100 ms, High 43 ms) is searched note by note: harmonic sum, strongest first, each found note's partials removed "
@@ -689,7 +690,7 @@ struct SynthEngine::Impl
         // a new phrase only starts on a steady pitch: 4 fresh analysis frames that drift no more than
         // 0.2 semitone first to last and spread no more than 0.25 (a finger sliding on a wound string
         // sweeps ~0.5 semitone in that time, a plucked note settles by ~0.1). Right after a strong attack
-        // (an onset 18 dB or more above the gate: a pick, not a squeak or a scrape) 3 frames will do.
+        // (an onset 18 dB or more above the gate: a pick, not a squeak or a scrape) 2 frames will do.
         if (tracker.frames != lastTrackerFrame)
         {
             lastTrackerFrame = tracker.frames;
@@ -707,7 +708,7 @@ struct SynthEngine::Impl
                               tracker.candidate, tracker.levelDb, recentCount);
         }
         const bool strongAttack = tracker.framesSinceOnset < 12 && tracker.levelDb >= b.gateDb + 18.0f;
-        const int needed = strongAttack ? 3 : 4;
+        const int needed = strongAttack ? 2 : 4;
         bool steady = false;
         if (recentCount >= needed)
         {
@@ -721,6 +722,11 @@ struct SynthEngine::Impl
             const float newest = recentPitch[(size_t) ((recentCount - 1) % 4)];
             const float oldest = recentPitch[(size_t) ((recentCount - needed) % 4)];
             steady = std::abs (newest - oldest) <= 0.2f && hi - lo <= 0.25f;
+            // while the tracker analyses only the audio since the attack (54 ms), a new phrase also needs a
+            // clear newest frame: a palm-muted strum gives agreeing estimates at clarity ~0.7 that fade, a
+            // picked string's clarity keeps rising past 0.8
+            if (tracker.framesSinceOnset < 20 && tracker.clarity < 0.8f)
+                steady = false;
         }
 
         const bool voicedNow = tracker.voiced && tracker.f0 > 0.0f && tracker.levelDb > b.gateDb

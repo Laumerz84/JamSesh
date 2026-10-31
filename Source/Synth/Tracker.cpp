@@ -4,7 +4,8 @@
 // computed with an FFT autocorrelation on the input decimated to ~12 kHz, every ~2.7 ms.
 // The analysis window adapts: while a note is held cleanly it shrinks to ~2.6 periods of that
 // note (low latency, octave-down errors impossible); otherwise it covers 2 periods of the
-// lowest note of the selected range. Octave-up errors are rejected with a stickiness rule, and
+// lowest note of the selected range. For 54 ms after an attack it covers only the audio since the
+// attack (a clear pitch from ~1.5 periods of the new note). Octave-up errors are rejected with a stickiness rule, and
 // pitch jumps need two agreeing frames unless they follow an attack (onset).
 //
 // Cost at 48 kHz: ~25 flops per input sample plus one 128..2048-point real FFT pair per hop
@@ -190,6 +191,14 @@ void PitchTracker::analyse() noexcept
     int W = wMax;
     if (voiced && lastClarity > 0.8f && period > 0.0f)
         W = juce::jlimit (64, wMax, (int) (2.6f * period) + 2);
+    // right after an attack only the audio since the attack is analysed (as in Chord mode), whether or
+    // not a note is playing: a window that is only partly new note has a low NSDF peak (the clarity
+    // reaches the attack threshold only at ~2.1 periods of the note), a window that is all new note is
+    // clear at ~1.5 periods. Octave-down errors stay impossible (tauMax is 2/3 of the window).
+    const int trimFrames = (int) (0.054 * srD / hop);   // 54 ms (20 frames)
+    const int fullW = W;
+    if (framesSinceOnset < trimFrames)
+        W = juce::jlimit (64, juce::jmax (64, W), (framesSinceOnset + 1) * hop + (int) (0.001 * srD));
 
     // newest W samples, mean removed
     double mean = 0.0;
@@ -265,6 +274,41 @@ void PitchTracker::analyse() noexcept
     if (! good)
     {
         unvoicedFrame();
+        return;
+    }
+
+    // a string that rings vs a knock: over the attack a picked note keeps its level from one period to
+    // the next, a knock on the body (a decaying low tone) loses ~2 dB per period. The decay of the newest
+    // 1.5 periods (energy over a period, half a period apart) must stay under 0.8 dB per period, else the
+    // frame is inconclusive (no estimate; a playing note holds).
+    if (framesSinceOnset < 12)
+    {
+        const int P = (int) std::round (tau), h = P / 2;
+        if (P + h <= W && h > 0)
+        {
+            double e0 = 0.0, e1 = 0.0;
+            for (int k = W - P; k < W; ++k)
+            {
+                e1 += (double) frame[(size_t) k] * frame[(size_t) k];
+                e0 += (double) frame[(size_t) (k - h)] * frame[(size_t) (k - h)];
+            }
+            const double perPeriodDb = 20.0 * std::log10 ((e0 + 1.0e-20) / (e1 + 1.0e-20)) * (double) P / (double) (2 * h);
+            if (perPeriodDb > 0.8)
+            {
+                candidate = 0.0f;
+                return;
+            }
+        }
+    }
+
+    // a playing note jumps at once after an attack, but a trimmed window may be too short to hold a
+    // lower period: one partial of the new note (or of the ringing old one) can then pass for the pitch.
+    // A jump is only taken from a window that could also have seen the period an octave below; until
+    // then the frame is inconclusive (no estimate, the playing note holds).
+    if (voiced && f0 > 0.0f && W < fullW && (float) tauMax < 2.0f * tau
+        && std::abs (12.0f * std::log2 (fCand / f0)) > 1.0f)
+    {
+        candidate = 0.0f;
         return;
     }
 
