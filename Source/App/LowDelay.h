@@ -8,6 +8,8 @@
 //   - the first run (no saved device setup): a real ASIO driver at 128 samples, else Windows Audio (Low Latency
 //     Mode) at its smallest buffer, else JUCE's default (Windows Audio shared). Saved setups are never touched.
 //   - the Audio settings' "Lowest delay" button: the same rules, aiming for 64 samples on ASIO.
+// On macOS there is only CoreAudio, which has no shared-mode penalty: the devices open now (else the system's
+// defaults) at 128 samples on the first run, and 64 for "Lowest delay". warningFor() never warns about it.
 // Never exclusive mode (it silences every other app on that device). Generic ASIO wrappers (FL Studio ASIO,
 // ASIO4ALL, Generic Low Latency, Realtek ASIO, ...) are skipped: Low Latency Mode is usually as good and keeps
 // other apps' sound. The choice itself is a pure function (candidates / choose / pickBuffer), checked by the
@@ -19,6 +21,7 @@ namespace lowdelay
     inline const char* const lowLatencyType = "Windows Audio (Low Latency Mode)";
     inline const char* const sharedType = "Windows Audio";
     inline const char* const directSoundType = "DirectSound";
+    inline const char* const coreAudioType = "CoreAudio";   // macOS
 
     // one device type and its devices, as AudioIODeviceType lists them
     struct TypeInfo
@@ -36,7 +39,7 @@ namespace lowdelay
 
     struct Choice
     {
-        enum class Kind { keep, asio, lowLatencyMode };
+        enum class Kind { keep, asio, lowLatencyMode, coreAudio };
         Kind kind = Kind::keep;
         juce::String type, output, input;
         int bufferTarget = 0;   // the buffer to aim for (pickBuffer); 0 = the smallest available
@@ -56,9 +59,24 @@ namespace lowdelay
 
     // In order of preference: a real ASIO driver (the one open now if it is one, else the first in the list),
     // then Low Latency Mode on the devices open now (or Windows' defaults). Empty: nothing better than today.
+    // macOS: CoreAudio on the devices open now (or the system's defaults) at asioBuffer.
     inline juce::Array<Choice> candidates (const juce::Array<TypeInfo>& types, const Current& current, int asioBuffer)
     {
+        auto byDefault = [] (const juce::StringArray& names, int index)
+        {
+            return names.isEmpty() ? juce::String() : names[juce::jlimit (0, names.size() - 1, index)];
+        };
         juce::Array<Choice> out;
+        for (auto& t : types)
+        {
+            if (t.type != coreAudioType || t.outputs.isEmpty())
+                continue;
+            const bool inUse = current.type == coreAudioType;
+            const auto output = inUse && t.outputs.contains (current.output) ? current.output : byDefault (t.outputs, t.defaultOutput);
+            const auto input = inUse && (current.input.isEmpty() || t.inputs.contains (current.input)) ? current.input
+                                                                                                     : byDefault (t.inputs, t.defaultInput);
+            out.add ({ Choice::Kind::coreAudio, t.type, output, input, asioBuffer });
+        }
         for (auto& t : types)
         {
             if (t.type != asioType)
@@ -80,10 +98,6 @@ namespace lowdelay
         {
             if (t.type != lowLatencyType || t.outputs.isEmpty())
                 continue;
-            auto byDefault = [] (const juce::StringArray& names, int index)
-            {
-                return names.isEmpty() ? juce::String() : names[juce::jlimit (0, names.size() - 1, index)];
-            };
             const auto output = t.outputs.contains (current.output) ? current.output : byDefault (t.outputs, t.defaultOutput);
             const auto input = t.inputs.contains (current.input) ? current.input : byDefault (t.inputs, t.defaultInput);
             out.add ({ Choice::Kind::lowLatencyMode, t.type, output, input, 0 });
@@ -253,7 +267,7 @@ namespace lowdelay
                     continue;
                 }
             }
-            setBuffer (dm, c.kind == Choice::Kind::asio ? c.bufferTarget : 0);
+            setBuffer (dm, c.kind == Choice::Kind::lowLatencyMode ? 0 : c.bufferTarget);   // ASIO, CoreAudio: the target
             auto text = "Now " + describe (dm) + ".";
             if (! failed.isEmpty())
                 text << " " << failed.joinIntoString ("; ") << ".";

@@ -1251,7 +1251,11 @@ struct Network::Impl : private juce::Thread
             setsockopt (h, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char*) &yes, sizeof (yes));
         }
        #else
-        juce::ignoreUnused (exclusive);
+        if (exclusive)   // the same on macOS: JUCE's SO_REUSEADDR off, so a second bind to the port fails
+        {
+            int no = 0;
+            setsockopt (h, SOL_SOCKET, SO_REUSEADDR, &no, (socklen_t) sizeof (no));
+        }
        #endif
 
         const auto bindAddr = juce::SystemStats::getEnvironmentVariable ("CLOD_JAM_BIND", {}).trim();

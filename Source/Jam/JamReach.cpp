@@ -289,6 +289,11 @@ HttpResult http (const Url& u, const juce::String& method, const juce::String& e
     juce::StreamingSocket s;
     if (! s.connect (u.host, u.port, juce::jmax (100, timeoutMs)))
         return result;
+   #ifdef SO_NOSIGPIPE
+    // macOS: writing to a connection the router has reset must fail, not raise SIGPIPE (which ends the app, or the host)
+    int noSigPipe = 1;
+    setsockopt ((RawSocket) s.getRawSocketHandle(), SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, (socklen_t) sizeof (noSigPipe));
+   #endif
 
     juce::String request;
     request << method << " " << (u.path.isEmpty() ? juce::String ("/") : u.path) << " HTTP/1.0\r\n"

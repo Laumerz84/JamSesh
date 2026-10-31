@@ -1,0 +1,153 @@
+# The Mac build: Jam Sesh.app, Jam Sesh.vst3 and Jam Sesh.component (Audio Unit), the app's headless
+# self-test, and the package (packaging/mac/make-dist.sh -> JamSesh-<version>-Mac.zip, uploaded as an artifact).
+# Universal (Apple Silicon + Intel) on main, on version tags and on manual runs; Apple Silicon only on the
+# round/mac branch, which is quicker while the Mac port is worked on.
+name: Build macOS
+
+on:
+  push:
+    branches: [main, round/mac]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      universal:
+        description: Universal binary (Apple Silicon + Intel); unticked = Apple Silicon only (quicker)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-mac-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      ARCHS: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/round/mac') || (github.event_name == 'workflow_dispatch' && inputs.universal == false)) && 'arm64' || 'arm64;x86_64' }}
+      ART: build/ClodScope_artefacts/Release
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          brew install ninja ccache
+          xcodebuild -version
+          cmake --version
+          echo "Architectures: $ARCHS"
+
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-mac-${{ env.ARCHS }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-mac-${{ env.ARCHS }}-${{ github.ref_name }}-
+            ccache-mac-${{ env.ARCHS }}-
+
+      - name: Configure
+        run: |
+          ccache --max-size=2G
+          ccache --zero-stats
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=$ARCHS" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build the app, the VST3 and the Audio Unit
+        run: |
+          rc=0
+          cmake --build build --target ClodScope_Standalone ClodScope_VST3 ClodScope_AU -j "$(sysctl -n hw.ncpu)" -- -k 0 > build/build.log 2>&1 || rc=$?
+          echo "warnings in Source/ and tools/: $(grep -cE "^(\.\./)*(Source|tools)/.*warning:" build/build.log || true)"
+          grep -E -A4 "error:|FAILED:|ld: |Undefined symbols" build/build.log | head -400 || true
+          tail -3 build/build.log
+          ccache --show-stats || true
+          exit "$rc"
+
+      - name: Inspect the bundles
+        run: |
+          ls -la "$ART" "$ART"/*
+          lipo -info "$ART/Standalone/Jam Sesh.app/Contents/MacOS/Jam Sesh" "$ART/VST3/Jam Sesh.vst3/Contents/MacOS/Jam Sesh" "$ART/AU/Jam Sesh.component/Contents/MacOS/Jam Sesh"
+          plutil -p "$ART/Standalone/Jam Sesh.app/Contents/Info.plist"
+          plutil -p "$ART/AU/Jam Sesh.component/Contents/Info.plist" | grep -A14 AudioComponents || true
+          ls "$ART/Standalone/Jam Sesh.app/Contents/Resources" "$ART/VST3/Jam Sesh.vst3/Contents/Resources" || true
+          otool -l "$ART/Standalone/Jam Sesh.app/Contents/MacOS/Jam Sesh" > build/otool.txt
+          grep -A4 -E "LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX" build/otool.txt | head -12 || true
+
+      - name: App self-test (headless)
+        run: |
+          app="$ART/Standalone/Jam Sesh.app/Contents/MacOS/Jam Sesh"
+          selftest() {   # <out dir> [arch]: no window, no audio device; 5 minutes at most
+            if [ -n "${2:-}" ]; then arch "-$2" "$app" --selftest "$1" & else "$app" --selftest "$1" & fi
+            local pid=$!
+            ( sleep 300; kill -9 "$pid" 2>/dev/null ) &
+            local watchdog=$! rc=0
+            wait "$pid" || rc=$?
+            kill "$watchdog" 2>/dev/null || true
+            cat "$1/selftest.txt" || true
+            echo "self-test ${2:-native}: exit $rc"
+            return "$rc"
+          }
+          selftest "$RUNNER_TEMP/selftest"
+          if [[ "$ARCHS" == *x86_64* ]] && arch -x86_64 /usr/bin/true 2>/dev/null; then
+            selftest "$RUNNER_TEMP/selftest-x86_64" x86_64   # the Intel half, under Rosetta
+          fi
+
+      - name: Audio Unit validation (auval)
+        continue-on-error: true
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$ART/AU/Jam Sesh.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          auval -a | grep -i "Cldc" || true
+          auval -v aufx Csc1 Cldc > build/auval.txt 2>&1 || rc=$?
+          tail -30 build/auval.txt
+          exit "${rc:-0}"
+
+      - name: Package
+        run: |
+          bash packaging/mac/make-dist.sh build dist
+          ls -la dist
+
+      - name: Check the package (unzipped as a user would)
+        run: |
+          zip=$(ls dist/JamSesh-*-Mac.zip)
+          check="$RUNNER_TEMP/unzipped"
+          rm -rf "$check"; mkdir -p "$check"
+          unzip -q "$zip" -d "$check"
+          find "$check" -maxdepth 2 | sort
+          for b in "$check"/*/*.app "$check"/*/*.vst3 "$check"/*/*.component; do
+            codesign --verify --deep --strict --verbose=2 "$b"
+          done
+          unzip -l "$check"/*/JamSesh-*-Source.zip | tail -1
+          app=$(ls -d "$check"/*/*.app)
+          "$app/Contents/MacOS/Jam Sesh" --selftest "$RUNNER_TEMP/selftest-unzipped"
+          grep RESULT "$RUNNER_TEMP/selftest-unzipped/selftest.txt"
+          echo "PACKAGE_NAME=$(basename "$zip" .zip)" >> "$GITHUB_ENV"
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: dist/*-Mac.zip
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload the logs and self-test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-logs
+          path: |
+            ${{ runner.temp }}/selftest*/
+            build/build.log
+            build/auval.txt
+          if-no-files-found: ignore

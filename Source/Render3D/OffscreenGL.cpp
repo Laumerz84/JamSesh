@@ -149,6 +149,96 @@ bool OffscreenGL::isValid() const noexcept { return impl->context != nullptr; }
 bool OffscreenGL::makeCurrent()            { return impl->makeCurrent(); }
 void OffscreenGL::release()                { impl->release(); }
 
+#elif defined (__APPLE__)
+
+// macOS: a CGL context needs no window at all. It is only ever current while rendering into framebuffer
+// objects, so nothing reaches the screen except the painted image, as on Windows. OpenGL is deprecated on
+// macOS but still there (Apple Silicon included); if no 3.2 core context can be made, the views say so.
+#ifndef GL_SILENCE_DEPRECATION
+ #define GL_SILENCE_DEPRECATION 1
+#endif
+#include <OpenGL/OpenGL.h>
+
+struct OffscreenGL::Impl
+{
+    CGLContextObj context = nullptr;
+    CGLContextObj previous = nullptr;
+    bool attempted = false;
+
+    ~Impl()
+    {
+        if (context != nullptr)
+        {
+            if (CGLGetCurrentContext() == context)
+                CGLSetCurrentContext (nullptr);
+            CGLReleaseContext (context);
+        }
+    }
+
+    bool create()
+    {
+        if (attempted)
+            return context != nullptr;
+        attempted = true;
+
+        // hardware first (any GPU: AllowOfflineRenderers keeps a dual-GPU Mac on the GPU it is using), then
+        // whatever renderer the system offers
+        for (const bool accelerated : { true, false })
+        {
+            CGLPixelFormatAttribute attribs[16] {};
+            int n = 0;
+            attribs[n++] = kCGLPFAOpenGLProfile;
+            attribs[n++] = (CGLPixelFormatAttribute) kCGLOGLPVersion_3_2_Core;
+            attribs[n++] = kCGLPFAColorSize;
+            attribs[n++] = (CGLPixelFormatAttribute) 24;
+            attribs[n++] = kCGLPFAAlphaSize;
+            attribs[n++] = (CGLPixelFormatAttribute) 8;
+            attribs[n++] = kCGLPFADepthSize;
+            attribs[n++] = (CGLPixelFormatAttribute) 24;
+            attribs[n++] = kCGLPFAAllowOfflineRenderers;
+            if (accelerated)
+                attribs[n++] = kCGLPFAAccelerated;
+            attribs[n] = (CGLPixelFormatAttribute) 0;
+
+            CGLPixelFormatObj format = nullptr;
+            GLint formats = 0;
+            if (CGLChoosePixelFormat (attribs, &format, &formats) != kCGLNoError || format == nullptr)
+                continue;
+            const auto err = CGLCreateContext (format, nullptr, &context);
+            CGLReleasePixelFormat (format);
+            if (err == kCGLNoError && context != nullptr)
+                return true;
+            context = nullptr;
+        }
+        return false;
+    }
+
+    bool makeCurrent()
+    {
+        if (context == nullptr)
+            return false;
+        previous = CGLGetCurrentContext();
+        if (CGLSetCurrentContext (context) == kCGLNoError)
+            return true;
+        release();
+        return false;
+    }
+
+    void release()
+    {
+        CGLSetCurrentContext (previous);
+        previous = nullptr;
+    }
+};
+
+OffscreenGL::OffscreenGL() : impl (std::make_unique<Impl>()) {}
+OffscreenGL::~OffscreenGL() = default;
+
+bool OffscreenGL::create()                 { return impl->create(); }
+bool OffscreenGL::isValid() const noexcept { return impl->context != nullptr; }
+bool OffscreenGL::makeCurrent()            { return impl->makeCurrent(); }
+void OffscreenGL::release()                { impl->release(); }
+
 #else
 
 struct OffscreenGL::Impl {};

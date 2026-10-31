@@ -5,6 +5,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Static CRT so the .vst3 and the .exe have no runtime DLL dependencies
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# macOS: the oldest macOS the app and the plugins run on (read by project(), so set before it). The build is
+# for the build machine's processor unless CMAKE_OSX_ARCHITECTURES says otherwise; the release is universal:
+#   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+# (.github/workflows/build-mac.yml builds it that way; packaging/mac/make-dist.sh packages it)
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Oldest macOS the app and the plugins run on")
+
 project(ClodScope VERSION 1.3.0)
 
 add_subdirectory(JUCE)
@@ -29,16 +35,44 @@ set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
 set(OPUS_STATIC_RUNTIME ON CACHE BOOL "" FORCE)
 set(OPUS_DRED OFF CACHE BOOL "" FORCE)
 set(OPUS_OSCE OFF CACHE BOOL "" FORCE)
+if(APPLE)
+    # A universal build compiles each file once per processor, but Opus picks its SIMD code (NEON or SSE) for the
+    # build machine's processor when it is configured: plain C in a universal build, so both halves compile.
+    list(LENGTH CMAKE_OSX_ARCHITECTURES CLOD_ARCH_COUNT)
+    if(CLOD_ARCH_COUNT GREATER 1)
+        set(OPUS_DISABLE_INTRINSICS ON CACHE BOOL "" FORCE)
+    else()
+        set(OPUS_DISABLE_INTRINSICS OFF CACHE BOOL "" FORCE)
+    endif()
+endif()
 add_subdirectory(third_party/opus EXCLUDE_FROM_ALL)
 
-# The plugin (VST3) and the standalone app are built from the same code, and both are called Jam Sesh. Until
+# The formats: the plugin (VST3) and the standalone app everywhere, and on macOS the Audio Unit as well. The Mac
+# app's Info.plist gets its icon and the texts of the two permission prompts: the microphone (audio input) and
+# the local network (friends on the same network and the router's port mapping, macOS 15 and later).
+# The Audio Unit is a plain effect (aufx), so Logic Pro and GarageBand offer it in an audio track's Audio FX
+# slots. (A "MIDI-controlled effect" would get MIDI there, but Logic only offers those in an instrument slot,
+# fed by a side chain, and GarageBand not at all. The synth follows the audio input without MIDI.)
+set(CLOD_FORMATS VST3 Standalone)
+set(CLOD_MAC_OPTIONS)
+if(APPLE)
+    set(CLOD_FORMATS VST3 AU Standalone)
+    set(CLOD_MAC_OPTIONS
+        AU_MAIN_TYPE kAudioUnitType_Effect
+        ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Source/Resources/JamSesh-1024.png"
+        MICROPHONE_PERMISSION_ENABLED TRUE
+        MICROPHONE_PERMISSION_TEXT "Jam Sesh plays your instrument or voice from the audio input through its effects, and to your friends when you jam."
+        PLIST_TO_MERGE "<plist><dict><key>NSLocalNetworkUsageDescription</key><string>Jam Sesh connects to friends on your local network, and asks your router to open a port so friends on the internet can join.</string></dict></plist>")
+endif()
+
+# The plugin (VST3, AU) and the standalone app are built from the same code, and all are called Jam Sesh. Until
 # 1.4.0 the plugin was "Clod Scope": the bundle ID and the plugin codes stay, so hosts still find it.
 juce_add_plugin(ClodScope
     COMPANY_NAME "Clod Codes"
     BUNDLE_ID com.clodcodes.clodscope
     PLUGIN_MANUFACTURER_CODE Cldc
     PLUGIN_CODE Csc1
-    FORMATS VST3 Standalone
+    FORMATS ${CLOD_FORMATS}
     PRODUCT_NAME "Jam Sesh"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT TRUE
@@ -46,38 +80,42 @@ juce_add_plugin(ClodScope
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
-    VST3_CATEGORIES Fx Analyzer)
+    VST3_CATEGORIES Fx Analyzer
+    ${CLOD_MAC_OPTIONS})
 
-# JUCE writes the plugin's Windows version resource (the version in the file properties of the .vst3) once
-# and never rewrites it, so after a version bump the file would still show the old version. A stale
-# resource file is removed here, and the build writes it again.
-get_target_property(CLOD_GENERATED ClodScope JUCE_GENERATED_SOURCES_DIRECTORY)
-get_target_property(CLOD_VERSION ClodScope JUCE_VERSION)
-set(CLOD_RC "${CLOD_GENERATED}/ClodScope_resources.rc")
-if(EXISTS "${CLOD_RC}")
-    file(STRINGS "${CLOD_RC}" CLOD_RC_FILEVERSION REGEX "\"FileVersion\"")
-    string(FIND "${CLOD_RC_FILEVERSION}" "\"${CLOD_VERSION}\\0\"" CLOD_RC_CURRENT)
-    if(CLOD_RC_FILEVERSION AND CLOD_RC_CURRENT EQUAL -1)
-        message(STATUS "Version resource is older than ${CLOD_VERSION}: rebuilding it")
-        file(REMOVE "${CLOD_RC}")
-    endif()
-endif()
-
-# The standalone app (Jam Sesh.exe, CLOD_APP_NAME in the code) gets its own resources in place of JUCE's: its
-# icon (CLOD_APP_ICON, drawn by
-# tools/icon/make-icon.ps1) and a version resource, so Windows (Task Manager, the Firewall prompt, the
-# volume mixer) shows the app's name too. Like JUCE's, they compile in an object library of their own,
-# without the plugin's compile definitions.
 set(CLOD_APP_NAME "Jam Sesh")
-set(CLOD_APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/Source/Resources/JamSesh.ico")
 set_target_properties(ClodScope_Standalone PROPERTIES OUTPUT_NAME "${CLOD_APP_NAME}")
-get_target_property(CLOD_APP_LINKS ClodScope_Standalone LINK_LIBRARIES)
-list(REMOVE_ITEM CLOD_APP_LINKS ClodScope_rc_lib)
-set_target_properties(ClodScope_Standalone PROPERTIES LINK_LIBRARIES "${CLOD_APP_LINKS}")
-configure_file(Source/App/AppResources.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ClodScopeApp_resources.rc" @ONLY)
-set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/ClodScopeApp_resources.rc" PROPERTIES OBJECT_DEPENDS "${CLOD_APP_ICON}")
-add_library(ClodScopeApp_rc_lib OBJECT "${CMAKE_CURRENT_BINARY_DIR}/ClodScopeApp_resources.rc")
-target_link_libraries(ClodScope_Standalone PRIVATE ClodScopeApp_rc_lib)
+
+if(WIN32)
+    # JUCE writes the plugin's Windows version resource (the version in the file properties of the .vst3) once
+    # and never rewrites it, so after a version bump the file would still show the old version. A stale
+    # resource file is removed here, and the build writes it again.
+    get_target_property(CLOD_GENERATED ClodScope JUCE_GENERATED_SOURCES_DIRECTORY)
+    get_target_property(CLOD_VERSION ClodScope JUCE_VERSION)
+    set(CLOD_RC "${CLOD_GENERATED}/ClodScope_resources.rc")
+    if(EXISTS "${CLOD_RC}")
+        file(STRINGS "${CLOD_RC}" CLOD_RC_FILEVERSION REGEX "\"FileVersion\"")
+        string(FIND "${CLOD_RC_FILEVERSION}" "\"${CLOD_VERSION}\\0\"" CLOD_RC_CURRENT)
+        if(CLOD_RC_FILEVERSION AND CLOD_RC_CURRENT EQUAL -1)
+            message(STATUS "Version resource is older than ${CLOD_VERSION}: rebuilding it")
+            file(REMOVE "${CLOD_RC}")
+        endif()
+    endif()
+
+    # The standalone app (Jam Sesh.exe, CLOD_APP_NAME in the code) gets its own resources in place of JUCE's: its
+    # icon (CLOD_APP_ICON, drawn by
+    # tools/icon/make-icon.ps1) and a version resource, so Windows (Task Manager, the Firewall prompt, the
+    # volume mixer) shows the app's name too. Like JUCE's, they compile in an object library of their own,
+    # without the plugin's compile definitions.
+    set(CLOD_APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/Source/Resources/JamSesh.ico")
+    get_target_property(CLOD_APP_LINKS ClodScope_Standalone LINK_LIBRARIES)
+    list(REMOVE_ITEM CLOD_APP_LINKS ClodScope_rc_lib)
+    set_target_properties(ClodScope_Standalone PROPERTIES LINK_LIBRARIES "${CLOD_APP_LINKS}")
+    configure_file(Source/App/AppResources.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ClodScopeApp_resources.rc" @ONLY)
+    set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/ClodScopeApp_resources.rc" PROPERTIES OBJECT_DEPENDS "${CLOD_APP_ICON}")
+    add_library(ClodScopeApp_rc_lib OBJECT "${CMAKE_CURRENT_BINARY_DIR}/ClodScopeApp_resources.rc")
+    target_link_libraries(ClodScope_Standalone PRIVATE ClodScopeApp_rc_lib)
+endif()
 
 # Files compiled into the binary: BinaryData::NewRockerRegular_ttf (the JAM SESH title font, SIL OFL)
 juce_add_binary_data(ClodScopeData SOURCES Source/Resources/Fonts/NewRocker-Regular.ttf)
@@ -135,9 +173,12 @@ set(CLOD_SOURCES
 
 target_sources(ClodScope PRIVATE ${CLOD_SOURCES})
 
-# ASIO: Steinberg's ASIO SDK (third_party/asiosdk), used under its GPLv3 option: Clod Scope and Jam Sesh are
-# GPLv3 (LICENSE.txt), and every shared copy comes with its source code (packaging/make-dist.ps1).
-target_include_directories(ClodScope PRIVATE third_party/asiosdk/common)
+# ASIO (Windows): Steinberg's ASIO SDK (third_party/asiosdk), used under its GPLv3 option: Clod Scope and Jam Sesh
+# are GPLv3 (LICENSE.txt), and every shared copy comes with its source code (packaging/make-dist.ps1).
+if(WIN32)
+    target_include_directories(ClodScope PRIVATE third_party/asiosdk/common)
+    target_compile_definitions(ClodScope PUBLIC JUCE_ASIO=1)
+endif()
 
 target_compile_definitions(ClodScope PUBLIC
     JUCE_WEB_BROWSER=0
@@ -145,7 +186,6 @@ target_compile_definitions(ClodScope PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
-    JUCE_ASIO=1
     JUCE_USE_MP3AUDIOFORMAT=1
     "CLOD_APP_NAME=\"${CLOD_APP_NAME}\"")
 
@@ -196,9 +236,11 @@ clod_add_tool(ClodJamTest "Clod Jam Test" tools/jam-test/JamTest.cpp tools/jam-t
 juce_add_console_app(ClodLatencyProbe PRODUCT_NAME "Clod Latency Probe")
 set_target_properties(ClodLatencyProbe PROPERTIES EXCLUDE_FROM_ALL TRUE)
 target_sources(ClodLatencyProbe PRIVATE tools/latency-probe/LatencyProbe.cpp)
-target_include_directories(ClodLatencyProbe PRIVATE third_party/asiosdk/common)
+if(WIN32)
+    target_include_directories(ClodLatencyProbe PRIVATE third_party/asiosdk/common)
+    target_compile_definitions(ClodLatencyProbe PRIVATE JUCE_ASIO=1)
+endif()
 target_compile_definitions(ClodLatencyProbe PRIVATE
-    JUCE_ASIO=1
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0)

@@ -19,7 +19,7 @@ public:
     };
 
     static juce::Font bodyFont (float size = 12.5f)  { return Theme::font (size); }
-    static juce::Font monoFont (float size = 12.0f)  { return juce::Font (juce::FontOptions().withName ("Consolas").withHeight (size)); }
+    static juce::Font monoFont (float size = 12.0f)  { return juce::Font (juce::FontOptions().withName (Theme::systemFontName ("Consolas")).withHeight (size)); }
 
     static Block heading (const juce::String& s, juce::Colour c = Palette::green)
     {
