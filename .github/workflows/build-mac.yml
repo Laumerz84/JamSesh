@@ -18,8 +18,8 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: build-mac-${{ github.ref }}
+concurrency:   # a newer push replaces a running build of the same branch; manual runs and pushes don't cancel each other
+  group: build-mac-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 defaults:
@@ -66,7 +66,7 @@ jobs:
         run: |
           rc=0
           cmake --build build --target ClodScope_Standalone ClodScope_VST3 ClodScope_AU -j "$(sysctl -n hw.ncpu)" -- -k 0 > build/build.log 2>&1 || rc=$?
-          echo "warnings in Source/ and tools/: $(grep -cE "^(\.\./)*(Source|tools)/.*warning:" build/build.log || true)"
+          echo "warnings in Source/ and tools/: $(grep -cE "/(Source|tools)/[^:]+:[0-9]+:[0-9]+: warning:" build/build.log || true)"
           grep -E -A4 "error:|FAILED:|ld: |Undefined symbols" build/build.log | head -400 || true
           tail -3 build/build.log
           ccache --show-stats || true
@@ -85,15 +85,11 @@ jobs:
       - name: App self-test (headless)
         run: |
           app="$ART/Standalone/Jam Sesh.app/Contents/MacOS/Jam Sesh"
-          selftest() {   # <out dir> [arch]: no window, no audio device; 5 minutes at most
-            if [ -n "${2:-}" ]; then arch "-$2" "$app" --selftest "$1" & else "$app" --selftest "$1" & fi
-            local pid=$!
-            ( sleep 300; kill -9 "$pid" 2>/dev/null ) &
-            local watchdog=$! rc=0
-            wait "$pid" || rc=$?
-            kill "$watchdog" 2>/dev/null || true
+          selftest() {   # <out dir> [arch]: no window, no audio device; stopped after 5 minutes (alarm)
+            local rc=0
+            perl -e 'alarm shift; exec @ARGV' 300 arch "-${2:-arm64}" "$app" --selftest "$1" || rc=$?
             cat "$1/selftest.txt" || true
-            echo "self-test ${2:-native}: exit $rc"
+            echo "self-test ${2:-arm64}: exit $rc"
             return "$rc"
           }
           selftest "$RUNNER_TEMP/selftest"
@@ -129,7 +125,7 @@ jobs:
           done
           unzip -l "$check"/*/JamSesh-*-Source.zip | tail -1
           app=$(ls -d "$check"/*/*.app)
-          "$app/Contents/MacOS/Jam Sesh" --selftest "$RUNNER_TEMP/selftest-unzipped"
+          perl -e 'alarm shift; exec @ARGV' 300 "$app/Contents/MacOS/Jam Sesh" --selftest "$RUNNER_TEMP/selftest-unzipped"
           grep RESULT "$RUNNER_TEMP/selftest-unzipped/selftest.txt"
           echo "PACKAGE_NAME=$(basename "$zip" .zip)" >> "$GITHUB_ENV"
 
@@ -193,7 +189,7 @@ jobs:
           snap="build/ClodScopeSnap_artefacts/Release/ClodScopeSnap"
           mkdir -p "$RUNNER_TEMP/snap"
           rc=0
-          "$snap" "$RUNNER_TEMP/snap" base themes jam > "$RUNNER_TEMP/snap/snap.txt" 2>&1 || rc=$?
+          perl -e 'alarm shift; exec @ARGV' 900 "$snap" "$RUNNER_TEMP/snap" base themes jam > "$RUNNER_TEMP/snap/snap.txt" 2>&1 || rc=$?
           cat "$RUNNER_TEMP/snap/snap.txt"
           exit "$rc"
 
