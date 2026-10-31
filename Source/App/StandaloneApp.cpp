@@ -639,6 +639,16 @@ namespace
                 check (order.size() == 2 && order[0].kind == Choice::Kind::asio && order[1].kind == Choice::Kind::lowLatencyMode,
                        "fallback order: ASIO, then Low Latency Mode (if the driver is busy)");
 
+                // macOS: only CoreAudio, at 128 on the first run and 64 for Lowest delay, on the devices in use
+                const juce::Array<lowdelay::TypeInfo> mac { { "CoreAudio", { "MacBook Pro Speakers", "USB Audio CODEC" },
+                                                              { "MacBook Pro Microphone", "USB Audio CODEC" }, 0, 0 } };
+                const auto m1 = lowdelay::choose (mac, { "CoreAudio", "USB Audio CODEC", "USB Audio CODEC" }, 128);
+                const auto m2 = lowdelay::choose (mac, {}, 64);
+                check (m1.kind == Choice::Kind::coreAudio && m1.output == "USB Audio CODEC" && m1.input == "USB Audio CODEC"
+                           && m1.bufferTarget == 128 && m2.kind == Choice::Kind::coreAudio && m2.output == "MacBook Pro Speakers"
+                           && m2.input == "MacBook Pro Microphone" && m2.bufferTarget == 64 && lowdelay::warningFor ("CoreAudio").isEmpty(),
+                       "macOS: CoreAudio on the devices in use (else the defaults) at 128 / 64 samples, no amber warning");
+
                 check (lowdelay::pickBuffer ({ 32, 64, 128, 256 }, 128) == 128 && lowdelay::pickBuffer ({ 32, 64, 128, 256 }, 64) == 64
                            && lowdelay::pickBuffer ({ 96, 192, 288 }, 128) == 192 && lowdelay::pickBuffer ({ 16, 32 }, 64) == 32
                            && lowdelay::pickBuffer ({ 480, 144, 192, 240 }, 0) == 144 && lowdelay::pickBuffer ({}, 128) == 0,

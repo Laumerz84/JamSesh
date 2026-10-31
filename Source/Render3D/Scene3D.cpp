@@ -510,7 +510,11 @@ struct Scene3D::Impl : public juce::MouseListener,
             juce::Image::BitmapData px (frame, juce::Image::BitmapData::writeOnly);
             jassert (px.pixelStride == 3 && px.lineStride == ((3 * w + 3) & ~3));   // rows padded to 4 bytes, as GL packs them
             glPixelStorei (GL_PACK_ALIGNMENT, 4);
+           #if JUCE_MAC
+            glReadPixels (0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px.data);   // JUCE's RGB pixels are R, G, B bytes on macOS
+           #else
             glReadPixels (0, 0, w, h, GL_BGR, GL_UNSIGNED_BYTE, px.data);   // BGR bytes = JUCE's RGB pixels in memory
+           #endif
         }
         glBindFramebuffer (GL_FRAMEBUFFER, 0);
     }

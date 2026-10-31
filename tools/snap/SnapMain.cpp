@@ -33,6 +33,15 @@ double threadCpuMs();   // CpuTime.cpp
 
 namespace
 {
+    void setEnv (const char* name, const char* value)
+    {
+       #ifdef _WIN32
+        _putenv_s (name, value);
+       #else
+        setenv (name, value, 1);
+       #endif
+    }
+
     template <typename T>
     T* findChild (juce::Component& root)
     {
@@ -126,8 +135,8 @@ int main (int argc, char** argv)
     for (int i = 1; i < argc; ++i)
         args.add (juce::String::fromUTF8 (argv[i]));
     if (std::getenv ("CLOD_THEME") == nullptr)
-        _putenv_s ("CLOD_THEME", "0");
-    _putenv_s ("CLOD_JAM_BIND", "127.0.0.1");   // never all interfaces (Windows Firewall would ask)
+        setEnv ("CLOD_THEME", "0");
+    setEnv ("CLOD_JAM_BIND", "127.0.0.1");   // never all interfaces (Windows Firewall would ask)
 
     juce::ScopedJuceInitialiser_GUI gui;
     const juce::File outDir (args.size() > 0 ? juce::File::getCurrentWorkingDirectory().getChildFile (args[0])
@@ -138,7 +147,12 @@ int main (int argc, char** argv)
     const bool wantBase = want ("base") || ! anyMode;
     juce::File jamTestExe = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
                                 .getParentDirectory().getParentDirectory().getParentDirectory()
-                                .getChildFile ("ClodJamTest_artefacts").getChildFile ("Release").getChildFile ("ClodJamTest.exe");
+                                .getChildFile ("ClodJamTest_artefacts").getChildFile ("Release")
+                               #ifdef _WIN32
+                                .getChildFile ("ClodJamTest.exe");
+                               #else
+                                .getChildFile ("ClodJamTest");
+                               #endif
     if (args.indexOf ("--jamtest") >= 0)
         jamTestExe = juce::File (args[args.indexOf ("--jamtest") + 1]);
 

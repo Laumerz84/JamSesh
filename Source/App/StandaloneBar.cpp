@@ -40,8 +40,12 @@ namespace
               selector (dm, 0, 2, 0, 2, true, false, false, false), onClosed (std::move (closed))   // inputs one by one
         {
             addAndMakeVisible (selector);
+           #if JUCE_MAC
+            lowestBtn.setTooltip ("The audio devices in use at 64 samples. Crackles? Raise the buffer a step.");
+           #else
             lowestBtn.setTooltip ("Your interface's own ASIO driver at 64 samples; without one, Windows Audio (Low Latency Mode) "
                                   "at its smallest buffer. Never exclusive mode. Crackles? Raise the buffer a step.");
+           #endif
             lowestBtn.onClick = [this] { lowestDelay(); };
             Theme::setAccent (lowestBtn, Accent::jam);
             addAndMakeVisible (lowestBtn);
@@ -715,7 +719,11 @@ struct StandaloneBar::Impl : private juce::Timer,
     juce::Rectangle<int> bpmLabelArea, trackLabelArea, trackInfoArea, recTimeArea;
     juce::String message, audioWarning;
     juce::uint32 messageUntil = 0;
+   #if JUCE_MAC
+    static constexpr const char* audioTip = "Audio interface, inputs, outputs, sample rate and buffer size";
+   #else
     static constexpr const char* audioTip = "Audio interface, inputs, outputs, sample rate and buffer size (ASIO for the lowest delay)";
+   #endif
     bool followingHost = false, dragOver = false;
 };
 

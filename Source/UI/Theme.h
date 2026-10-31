@@ -92,6 +92,27 @@ namespace Theme
         Backdrop backdrop = Backdrop::none;
     };
 
+    // A font named by a theme (UI/Themes.cpp) on this computer: the themes name Windows fonts, and on macOS
+    // each becomes a look-alike that every Mac has. Other names pass unchanged.
+    inline const char* systemFontName (const char* name)
+    {
+       #if JUCE_MAC
+        static const char* const macFonts[][2] = {
+            { "Consolas",     "Menlo" },
+            { "Segoe UI",     "Helvetica Neue" },
+            { "Calibri",      "Avenir Next" },
+            { "Candara",      "Avenir Next" },
+            { "Corbel",       "Avenir Next" },
+            { "Bahnschrift",  "Avenir Next Condensed" },
+            { "Cambria",      "Palatino" },
+        };
+        for (auto& f : macFonts)
+            if (juce::String (name) == f[0])
+                return f[1];
+       #endif
+        return name;
+    }
+
     inline Style currentStyle;
     inline const Style& style() { return currentStyle; }
     inline int generation = 0;        // counts theme switches (for anything that caches colours)

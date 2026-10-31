@@ -39,7 +39,7 @@ namespace Themes
             s.panels = p;
             s.titles = t;
             s.glow = glow;
-            s.fontName = font;
+            s.fontName = Theme::systemFontName (font);   // macOS: a Mac look-alike of the Windows font
             s.fontScale = fontScale;
             s.light = light;
             s.material = m;

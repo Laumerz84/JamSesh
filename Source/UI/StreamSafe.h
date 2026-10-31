@@ -22,7 +22,8 @@ namespace streamsafe
             peer.getComponent().repaint();
         }
        #else
-        juce::ignoreUnused (peer);
+        juce::ignoreUnused (peer);   // macOS: JUCE's CoreGraphics renderer stays (window capture there sees the
+                                     // composited window, whatever draws it)
        #endif
     }
 
