@@ -50,3 +50,20 @@ The plugin:   build\ClodScope_artefacts\Release\VST3\Clod Scope.vst3
 
 package.bat and build.bat run the same steps; set VSDIR at the top of them to your Visual Studio folder
 first.
+
+
+BUILDING ON MACOS
+
+You need Xcode or its Command Line Tools (xcode-select --install), CMake and Ninja (for example from
+Homebrew: brew install cmake ninja). In Terminal, in this folder:
+
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+    cmake --build build --target ClodScope_Standalone ClodScope_VST3 ClodScope_AU
+
+The app:      build/ClodScope_artefacts/Release/Standalone/Jam Sesh.app
+The plugins:  build/ClodScope_artefacts/Release/VST3/Jam Sesh.vst3
+              build/ClodScope_artefacts/Release/AU/Jam Sesh.component (Audio Unit)
+
+Without the CMAKE_OSX_ARCHITECTURES part it builds for your Mac's processor only. Then
+"bash packaging/mac/make-dist.sh" packages them with this source code (into dist/), as the GitHub
+workflow .github/workflows/build-mac.yml does.

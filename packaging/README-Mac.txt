@@ -1,10 +1,10 @@
 Jam Sesh {VERSION} - app and plugins for macOS
 ==============================================
 
-Jam Sesh lets you play together online with friends. It's also a sound kit for guitar, voice or any
-other input: it turns what you play into a synth (single notes or whole chords), lets you shape the
-wave by hand, runs it through an effects rack, and shows the sound as a scope, 3D views and an
-orbital cloud. 126 presets included.
+Jam Sesh lets you play together online with friends. It's also an oscilloscope and sound kit for
+guitar, voice or any other input: it turns what you play into a synth (single notes or whole
+chords), lets you shape the wave by hand, runs it through an effects rack, and shows the sound as a
+scope, 3D views and an orbital cloud. 126 presets included.
 
 What you get:
 - Jam Sesh.app                   the app: no DAW needed, plug in your guitar and play
@@ -141,15 +141,16 @@ already are).
 
 JAM SESH: PLAY TOGETHER ONLINE
 
-One player hosts, up to five friends join. Works in the app and in the plugins, and Mac and Windows
-players, app and plugin, can all jam together.
+The app opens on the Jam Sesh view; in the plugin, click Jam Sesh in the top bar. One player hosts
+a sesh, up to five friends join. Works in the app and in the plugins, and Mac and Windows players,
+app and plugin, can all jam together.
 
 1. The host clicks Host. Jam Sesh then looks up the host's internet address (it asks a public
    STUN server, Google's or Cloudflare's; nothing else is sent) and asks the router to let friends
    in (UPnP). The line under the code says whether friends over the internet can join. When it's
-   done, copy the code and send it to the friends (chat, Discord, ...).
-2. Friends paste the code and click Join. Only the host needs an open port; friends can join from
-   anywhere.
+   done, copy the sesh code and send it to the friends (chat, Discord, ...).
+2. Friends paste the sesh code and click Join. Only the host needs an open port; friends can join
+   from anywhere.
 3. The first time, macOS asks about the local network (see PERMISSIONS): allow it.
 
 If the line under the code says friends can't reach you:
@@ -161,7 +162,12 @@ If the line under the code says friends can't reach you:
 - Or everyone joins the same Tailscale or ZeroTier network (free, no router settings) and the host
   shares the code from there.
 
-The code holds the host's internet address: only give it to people you want in the jam.
+The sesh code holds the host's internet address: only give it to people you want in the jam.
+
+Backing track: in the app, load it on the bar. In a DAW, put a second Jam Sesh with the role
+"Backing track" on a track or bus that carries ONLY the beat, never on the master (it would send
+your guitar twice). With "Sync track" on, the host hears the track as late as it reaches the
+friends, so everyone hears it together.
 
 Far apart? Turn on one-bar mode: everyone hears everyone exactly one bar late, in time.
 
@@ -177,7 +183,8 @@ YOUR FILES
 
 Presets you save go to     Documents/Jam Sesh/Presets
 Recordings go to           Documents/Jam Sesh/Recordings
-Settings are kept in       ~/Library/Application Support/Jam Sesh
+Settings (theme, your name for the sesh, the app's audio setup and window) are in
+~/Library/Application Support/Jam Sesh
 
 
 UNINSTALL
